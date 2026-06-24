@@ -1,0 +1,29 @@
+# Environment / secrets
+.env
+*.sqlite
+
+# Data (gitignored — caches, databases, reports). Anchored to repo root
+# so it does not match src/paper_trader/data/.
+/data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Operator handoff prompts (not part of the repo itself)
+docs_to_claude/
