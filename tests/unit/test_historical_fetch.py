@@ -73,7 +73,9 @@ def test_fetch_one_stale_cache_refetches(cache_dir):
 def test_fetch_one_raises_on_empty(cache_dir):
     with patch.object(historical_fetch.yf, "download", return_value=pd.DataFrame()):
         with pytest.raises(ValueError, match="no data"):
-            historical_fetch.fetch_one("ZZZZ", date(2024, 1, 1), date(2024, 3, 1), cache_dir=cache_dir)
+            historical_fetch.fetch_one(
+                "ZZZZ", date(2024, 1, 1), date(2024, 3, 1), cache_dir=cache_dir
+            )
 
 
 def test_fetch_one_raises_on_missing_columns(cache_dir):
@@ -83,7 +85,9 @@ def test_fetch_one_raises_on_missing_columns(cache_dir):
     )
     with patch.object(historical_fetch.yf, "download", return_value=bad):
         with pytest.raises(ValueError, match="missing expected columns"):
-            historical_fetch.fetch_one("AAPL", date(2024, 1, 1), date(2024, 3, 1), cache_dir=cache_dir)
+            historical_fetch.fetch_one(
+                "AAPL", date(2024, 1, 1), date(2024, 3, 1), cache_dir=cache_dir
+            )
 
 
 def test_fetch_universe_continues_past_failures(cache_dir):

@@ -26,7 +26,9 @@ def load_universe(universe_file: str | None) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fetch historical OHLCV for the backtest universe.")
+    parser = argparse.ArgumentParser(
+        description="Fetch historical OHLCV for the backtest universe."
+    )
     parser.add_argument("--force", action="store_true", help="re-fetch even if cached")
     parser.add_argument(
         "--universe-file",
@@ -55,7 +57,9 @@ def main(argv: list[str] | None = None) -> int:
     newly_fetched = len(succeeded) if args.force else max(0, len(succeeded) - pre)
 
     cache_dir = historical_fetch.CACHE_DIR
-    total_bytes = sum(p.stat().st_size for p in cache_dir.glob("*.parquet")) if cache_dir.exists() else 0
+    total_bytes = (
+        sum(p.stat().st_size for p in cache_dir.glob("*.parquet")) if cache_dir.exists() else 0
+    )
 
     print("─" * 60)
     print("Backtest data fetch summary")
