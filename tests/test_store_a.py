@@ -260,19 +260,31 @@ def test_module_source_has_no_update_or_delete_sql():
         assert "DELETE" not in s, f"DELETE found in SQL literal: {s!r}"
 
 
-def test_schema_sql_has_no_update_delete_or_triggers():
+def test_no_mutation_triggers_present():
+    """DT-8.2 ruling: Store A carries the same no-mutation triggers as Store B."""
     from steward.storage.store_a import SCHEMA_PATH
 
-    # Strip line comments so explanatory prose doesn't trip keyword checks;
-    # what remains is executable DDL.
-    ddl_lines = [
-        line.split("--", 1)[0]
-        for line in SCHEMA_PATH.read_text().splitlines()
-    ]
-    ddl = "\n".join(ddl_lines).upper()
+    ddl = SCHEMA_PATH.read_text().upper()
+    for table in ("CYCLE_HEADERS", "AGENT_INVOCATIONS"):
+        assert f"BEFORE UPDATE ON {table}" in ddl
+        assert f"BEFORE DELETE ON {table}" in ddl
 
-    assert "UPDATE" not in ddl
-    assert "DELETE" not in ddl
-    # No rejection triggers in this task (Store B / DT-8.2 territory).
-    # (Bare "TRIGGER" would falsely match the trigger_kind column name.)
-    assert "CREATE TRIGGER" not in ddl
+
+@pytest.mark.parametrize("table", ["cycle_headers", "agent_invocations"])
+def test_update_rejected_by_trigger(store, table):
+    store.insert_cycle_header(**_header_kwargs())
+    if table == "agent_invocations":
+        store.insert_agent_invocation(**_invocation_kwargs())
+    with store.connection() as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(f"UPDATE {table} SET status='hacked'")
+
+
+@pytest.mark.parametrize("table", ["cycle_headers", "agent_invocations"])
+def test_delete_rejected_by_trigger(store, table):
+    store.insert_cycle_header(**_header_kwargs())
+    if table == "agent_invocations":
+        store.insert_agent_invocation(**_invocation_kwargs())
+    with store.connection() as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(f"DELETE FROM {table}")

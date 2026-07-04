@@ -2,8 +2,12 @@
 --
 -- Two tables in ONE SQLite file, physically separate from the app db, the
 -- checkpointer, and Store B. Store A is IMMUTABLE at the app layer: the
--- framework module exposes inserts only and no mutation path. No rejection
--- triggers are declared here (that is Store B / DT-8.2 territory).
+-- framework module exposes inserts only and no mutation path.
+--
+-- Per the DT-8.2 ruling, the same no-mutation triggers used on Store B's ledger
+-- are also applied here: any UPDATE or DELETE against either table is rejected
+-- at the database layer. Append-only is thus enforced at BOTH the app layer
+-- (insert-only surface) and the db layer (rejection triggers).
 
 CREATE TABLE IF NOT EXISTS cycle_headers (
     cycle_id               TEXT PRIMARY KEY,   -- ULID target (DT-4.1); TEXT accepts current uuid4
@@ -35,3 +39,30 @@ CREATE TABLE IF NOT EXISTS agent_invocations (
 -- Serves the replay four-source join.
 CREATE INDEX IF NOT EXISTS idx_agent_invocations_cycle_id
     ON agent_invocations(cycle_id);
+
+-- ─── No-mutation triggers (DT-8.2 ruling) ───────────────────────────────
+-- Store A is append-only. Reject every UPDATE and DELETE at the db layer.
+
+CREATE TRIGGER IF NOT EXISTS cycle_headers_no_update
+BEFORE UPDATE ON cycle_headers
+BEGIN
+    SELECT RAISE(ABORT, 'cycle_headers is append-only: UPDATE rejected');
+END;
+
+CREATE TRIGGER IF NOT EXISTS cycle_headers_no_delete
+BEFORE DELETE ON cycle_headers
+BEGIN
+    SELECT RAISE(ABORT, 'cycle_headers is append-only: DELETE rejected');
+END;
+
+CREATE TRIGGER IF NOT EXISTS agent_invocations_no_update
+BEFORE UPDATE ON agent_invocations
+BEGIN
+    SELECT RAISE(ABORT, 'agent_invocations is append-only: UPDATE rejected');
+END;
+
+CREATE TRIGGER IF NOT EXISTS agent_invocations_no_delete
+BEFORE DELETE ON agent_invocations
+BEGIN
+    SELECT RAISE(ABORT, 'agent_invocations is append-only: DELETE rejected');
+END;
