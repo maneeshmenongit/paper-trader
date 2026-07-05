@@ -30,11 +30,27 @@ class ExecuteAgent:
         self.clock = clock
         self.trading_client = trading_client
         self.params = ExecuteParams(skill)  # all risk values from the skill
+        # Portfolio equity in effect at Execute time — recorded for the frozen
+        # trace (Wave 5 Task 1). Inert: it does not affect any trade decision.
+        self._frozen_equity: float | None = None
+
+    def frozen_facts(self) -> dict[str, Any]:
+        """Extra frozen facts for this invocation's Store A input (DT-4.2).
+
+        Freezes the equity the cap check was measured against so the observer can
+        recompute notional <= max_position_pct * equity without re-deriving it.
+        Equity is domain state, not a secret (freeze checklist).
+        """
+        if self._frozen_equity is None:
+            return {}
+        return {"frozen_equity": self._frozen_equity}
 
     async def run(self, state: CycleState) -> CycleState:
         decisions = dict(state.trade_decisions)
         new_trades = list(state.new_paper_trades)
         open_count = len(state.portfolio.open_positions)
+        # Freeze the equity in effect NOW (before any of this cycle's trades).
+        self._frozen_equity = self._equity(state)
 
         # Loss halt is a cycle-level gate: if breached, no new trades this cycle.
         loss_halted = self._daily_loss_breached(state)

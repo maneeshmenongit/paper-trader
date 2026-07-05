@@ -44,6 +44,15 @@ async def run_agent_with_emission(
 
     new_state = await run_with_write_enforcement(agent, state)
 
+    # An agent may expose extra frozen facts for its Store A input (e.g. Execute
+    # freezes the equity its cap check used — Wave 5 Task 1). Read AFTER the run
+    # so the agent has computed them; behavior-neutral (read-only side-write).
+    frozen_facts = getattr(agent, "frozen_facts", None)
+    if callable(frozen_facts):
+        extra = frozen_facts()
+        if extra:
+            agent_input = {**agent_input, **extra}
+
     agent_output = _snapshot(new_state, agent.writes) or {}
     ended_at = clock.now().isoformat()
 
