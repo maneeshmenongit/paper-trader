@@ -1,0 +1,111 @@
+"""Proposal store (DT-11.3 / spec §8, Steward Wave 4).
+
+FRAMEWORK layer. Own SQLite file on its own injected path. Wave 4 CREATES
+PROPOSED rows only — the APPROVE executor (new version row + currency-pointer
+flip + window timestamps) is Wave 5 and is deliberately absent here.
+
+Anti-floating rule (spec §8.2): a proposal with EMPTY evidence_refs is illegal by
+construction — insert_proposed rejects it.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+SCHEMA_PATH = Path(__file__).parent / "proposals_schema.sql"
+
+# Statuses that block a new proposal against the same skill (DT-12.4 guard).
+OPEN_STATUSES = ("PROPOSED", "APPROVED", "IN_WINDOW")
+
+
+class EmptyEvidenceError(ValueError):
+    """A proposal with no cited evidence is illegal by construction (§8.2)."""
+
+
+class ProposalStore:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        with self.connection() as conn:
+            conn.executescript(SCHEMA_PATH.read_text())
+
+    @contextmanager
+    def connection(self) -> Generator[sqlite3.Connection, None, None]:
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    # ─── create PROPOSED (Wave 4) ────────────────────────────────────────
+
+    def insert_proposed(
+        self,
+        *,
+        proposal_id: str,
+        created_at: str,
+        author: str,
+        application_id: str,
+        evidence_refs: list[str],
+        target_skill: str,
+        base_version_id: str,
+        proposed_change: dict[str, Any],
+        rationale: str,
+        complexity_tag: str,
+    ) -> None:
+        """Insert a PROPOSED proposal. Rejects empty evidence_refs (§8.2)."""
+        if not evidence_refs:
+            raise EmptyEvidenceError(
+                "proposal has empty evidence_refs — cite-never-assert (§8.2)"
+            )
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO proposals (
+                    proposal_id, created_at, author, application_id,
+                    evidence_refs, target_skill, base_version_id,
+                    proposed_change, rationale, complexity_tag, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROPOSED')
+                """,
+                (
+                    proposal_id, created_at, author, application_id,
+                    json.dumps(evidence_refs), target_skill, base_version_id,
+                    json.dumps(proposed_change, sort_keys=True), rationale, complexity_tag,
+                ),
+            )
+
+    # ─── reads ───────────────────────────────────────────────────────────
+
+    def open_proposal_for(self, target_skill: str) -> dict[str, Any] | None:
+        """Return an existing PROPOSED/APPROVED/IN_WINDOW proposal for the skill,
+        or None. Backs the one-proposal-at-a-time guard (DT-12.4)."""
+        placeholders = ",".join("?" for _ in OPEN_STATUSES)
+        with self.connection() as conn:
+            row = conn.execute(
+                f"SELECT * FROM proposals WHERE target_skill=? "
+                f"AND status IN ({placeholders}) LIMIT 1",
+                (target_skill, *OPEN_STATUSES),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get(self, proposal_id: str) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None

@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from steward.storage.proposals import ProposalStore
 from steward.storage.skill_version import SkillVersionRegistry
 from steward.storage.store_a import StoreA
 from steward.storage.store_b import StoreB
@@ -31,6 +32,9 @@ DEFAULT_STORE_A_PATH = "./data/store_a.sqlite"
 
 STORE_B_PATH_ENV = "STORE_B_DB_PATH"
 DEFAULT_STORE_B_PATH = "./data/store_b.sqlite"
+
+PROPOSALS_PATH_ENV = "PROPOSALS_DB_PATH"
+DEFAULT_PROPOSALS_PATH = "./data/proposals.sqlite"
 
 # The DC-1 application/instance identifier stamped on every governance record.
 APPLICATION_ID = "paper-trader"
@@ -81,3 +85,17 @@ def open_store_b(path: Path | None = None) -> StoreB:
     from Store A, the app db, the checkpointer, and the skill registry.
     """
     return StoreB(path or store_b_path())
+
+
+def proposals_path() -> Path:
+    """Resolve the proposal-store file path from env (with a default)."""
+    return Path(os.environ.get(PROPOSALS_PATH_ENV, DEFAULT_PROPOSALS_PATH))
+
+
+def open_proposal_store(path: Path | None = None) -> ProposalStore:
+    """Open the proposal store by injected path (its own DISTINCT file).
+
+    The proposer writes PROPOSED records here (Wave 4). The APPROVE executor
+    (fork + pointer flip + window) is Wave 5 and is not built.
+    """
+    return ProposalStore(path or proposals_path())
