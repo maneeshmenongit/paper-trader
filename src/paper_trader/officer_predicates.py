@@ -241,8 +241,15 @@ def outcome_mismatch_detector(views: list[InvocationView]) -> list[Divergence]:
                 out.append(Divergence(
                     observation_type="outcome-mismatch",
                     detail={
-                        "agent_name": "postmortem",
-                        "skill_version_id": view.skill_version_id,
+                        # SUBJECT is the Predict skill the missed forecast came from
+                        # — an outcome-mismatch is filed AGAINST predict (DT-11.5),
+                        # so the proposer targeting predict discovers it. The
+                        # settling PostMortem is cited via invocation_id, not subject.
+                        "agent_name": "predict",
+                        "skill_version_id": PREDICT_SKILL,
+                        # who observed it (the settling PostMortem) — provenance.
+                        "observed_by": "postmortem",
+                        "observed_by_skill_version_id": view.skill_version_id,
                         # original prediction referenced in evidence (nullable link)
                         "original_prediction_ref": pm.get("paper_trade_id"),
                         "magnitude_error": pm.get("magnitude_error"),
@@ -252,6 +259,11 @@ def outcome_mismatch_detector(views: list[InvocationView]) -> list[Divergence]:
                     invocation_id=view.invocation_id,
                 ))
     return out
+
+
+# The Predict skill an outcome-mismatch is filed against (version-independent
+# identity; the proposer targets this).
+PREDICT_SKILL = "paper-trader/predict/predict"
 
 
 def _noop(constraint: dict[str, Any], inv: InvocationView) -> list[Divergence]:
