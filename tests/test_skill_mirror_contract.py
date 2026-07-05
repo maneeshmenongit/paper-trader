@@ -1,20 +1,16 @@
-"""Forward mirror-contract for the @v1 skills (DT-9.1, re-scoped — Wave 2).
+"""Mirror-contract for the @v1 skills (DT-9.1).
 
-WHY RE-SCOPED: DT-9.1 as written asserts each authored skill value equals the
-value the live loop currently uses (from risk_gates.toml + Filter inline
-thresholds). Neither exists yet — the domain agents and their config are unbuilt.
-There is no current behavior to mirror.
-
-So this is the forward half: lock the ratified @v1 values as an explicit contract
-the FUTURE live loop must match. When Wave 3 builds the agents to read from the
-registry, the SUPERSEDED banners and the value-equality (skill == live-config)
-test attach at that point — this file is what they must satisfy. No risk_gates.toml
-is fabricated here (that would invent the very baseline the mirror exists to
-protect).
-
-Every value below is transcribed from Appendix A and is skill content (G1): any
-change is a gated fork, so this test failing means either a bad edit to a @v1
-skill or an intended fork that must go through the gate — never a silent drift.
+Two layers:
+1. FORWARD contract (Wave 2 origin): the ratified @v1 values are locked as skill
+   content; a change is a gated fork, so a failure means a bad skill edit or an
+   ungated fork — never silent drift.
+2. VALUE-EQUALITY upgrade (Wave 2.5 Task 9, bottom of file): now that the live
+   agents exist and parse their effective values FROM the loaded skill, the
+   contract is upgraded to assert the LIVE agents' effective values equal the
+   ratified skill values. This is the real DT-9.1 assertion — achievable now by
+   construction because the agents carry no inline thresholds. No risk_gates.toml
+   is fabricated (the earlier hard-stop: there is no such baseline; the agents
+   ARE the baseline, driven by the skills).
 """
 
 from __future__ import annotations
@@ -131,3 +127,54 @@ def _plain(value):
     if isinstance(value, tuple):
         return [_plain(v) for v in value]
     return value
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# DT-9.1 VALUE-EQUALITY UPGRADE (Wave 2.5 Task 9).
+#
+# Now that the live agents parse their effective risk/threshold values FROM the
+# loaded skill, the forward contract above is upgraded to the real DT-9.1 assert:
+# the LIVE agents' effective values equal the ratified skill values. Achievable
+# by construction — the agents have no inline thresholds, so equality here proves
+# the running loop is driven by exactly the ratified numbers. A future gated fork
+# of any value flips both the skill and this assertion together.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_live_filter_agent_floors_equal_skill(loaded):
+    from paper_trader.agents.filter import FilterAgent
+    from tests.fixtures.fakes import FakeMarketData, FakeTradingClient, FrozenClock
+
+    agent = FilterAgent(
+        loaded["filter"],
+        clock=FrozenClock(),
+        market_data=FakeMarketData(),
+        trading_client=FakeTradingClient(),
+    )
+    assert agent.stock_floor == 10_000_000.0    # $10M
+    assert agent.crypto_floor == 50_000_000.0   # $50M
+    assert agent.freshness_minutes == 60
+
+
+def test_live_execute_params_equal_skill(loaded):
+    from paper_trader.agents.skill_params import ExecuteParams
+
+    p = ExecuteParams(loaded["execute"])
+    assert p.kelly_fraction == 0.25
+    assert p.max_position_pct == 0.05
+    assert p.min_notional == 100.0
+    assert p.max_total_exposure_pct == 0.60
+    assert p.max_same_sector == 3
+    assert p.max_open_positions == 10
+    assert p.daily_loss_halt_pct == 0.05
+    assert p.min_confidence == 0.55           # DT-15.2 floor, kept
+    assert p.min_magnitude_pct == 0.005       # 0.5%
+
+
+def test_live_predict_agent_threshold_equals_skill(loaded):
+    from paper_trader.agents.predict import PredictAgent
+
+    agent = PredictAgent(loaded["predict"])
+    assert agent.confidence_threshold == 0.60  # I-10
+    # provisional roster is reported honestly against the declared roster
+    assert agent.declared_roster == ["momentum", "mean_reversion", "arima"]
+    assert agent.implemented == ["momentum"]
