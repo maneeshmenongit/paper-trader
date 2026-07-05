@@ -81,14 +81,14 @@ def test_open_registry_and_load_seeded_skill(tmp_path):
     assert "rules" in skill  # loaded read-only through the framework loader
 
 
-def test_no_store_b_path_wired():
-    # Store A is wired in Wave 3 (emission); Store B (the ledger) must stay
-    # UNWIRED — nothing in the fast loop writes the ledger.
-    import paper_trader.config as cfg
+def test_store_b_wired_for_observer(tmp_path):
+    # Wave 4: Store B is wired so the observer half can write the ledger. The
+    # fast-loop AGENTS still never touch it — only the observer does.
+    from paper_trader.config import open_store_b, store_b_path
 
-    names = [n.lower() for n in dir(cfg)]
-    assert not any("store_b" in n for n in names)
-    assert not any("ledger" in n for n in names)
+    assert store_b_path().name == "store_b.sqlite"
+    store = open_store_b(tmp_path / "store_b.sqlite")
+    assert store.path.exists()  # framework StoreB DDL applied on open
 
 
 # ─── app-db repository round-trip ────────────────────────────────────────

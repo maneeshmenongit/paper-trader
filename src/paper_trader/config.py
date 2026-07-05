@@ -4,11 +4,13 @@ Governance-store paths wired here:
 - SKILL-VERSION REGISTRY (Wave 2.5) — opened READ-ONLY for skill loading.
 - STORE A (Wave 3) — the execution-trace file, opened for orchestrator-level
   emission (cycle headers + agent invocations). Emission is non-blocking.
+- STORE B (Wave 4) — the correction ledger. The observer half of the officer is
+  the ONLY writer (append-only INSERT; no UPDATE/DELETE ever). Wired here so the
+  observer can open it by injected path; the proposer opens it READ-ONLY.
 
-DELIBERATELY NOT wired: STORE B (the correction ledger). Nothing in the fast loop
-writes the ledger this wave; wiring its path would invite a write path the
-hard-stop invariant forbids. The app db + checkpointer paths remain the existing
-PAPER_TRADER_DB_PATH / CHECKPOINTER_DB_PATH env vars (unchanged).
+The app db + checkpointer paths remain the existing PAPER_TRADER_DB_PATH /
+CHECKPOINTER_DB_PATH env vars (unchanged). Five+ stores, five+ paths, never
+co-mingled.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from pathlib import Path
 
 from steward.storage.skill_version import SkillVersionRegistry
 from steward.storage.store_a import StoreA
+from steward.storage.store_b import StoreB
 
 # Env var naming mirrors the existing PAPER_TRADER_DB_PATH / CHECKPOINTER_DB_PATH.
 SKILL_REGISTRY_PATH_ENV = "SKILL_REGISTRY_DB_PATH"
@@ -25,6 +28,9 @@ DEFAULT_SKILL_REGISTRY_PATH = "./data/skills.sqlite"
 
 STORE_A_PATH_ENV = "STORE_A_DB_PATH"
 DEFAULT_STORE_A_PATH = "./data/store_a.sqlite"
+
+STORE_B_PATH_ENV = "STORE_B_DB_PATH"
+DEFAULT_STORE_B_PATH = "./data/store_b.sqlite"
 
 # The DC-1 application/instance identifier stamped on every governance record.
 APPLICATION_ID = "paper-trader"
@@ -59,3 +65,19 @@ def open_store_a(path: Path | None = None) -> StoreA:
     the checkpointer, the skill registry, and Store B.
     """
     return StoreA(path or store_a_path())
+
+
+def store_b_path() -> Path:
+    """Resolve the Store B (correction ledger) file path from env (with a default)."""
+    return Path(os.environ.get(STORE_B_PATH_ENV, DEFAULT_STORE_B_PATH))
+
+
+def open_store_b(path: Path | None = None) -> StoreB:
+    """Open the Store B correction-ledger store by injected path.
+
+    The frozen framework helper (steward.storage.store_b.StoreB) creates the file
+    if absent and applies the Wave 1 DDL (append-only + no-mutation triggers). The
+    observer is the only writer; the proposer reads. Store B is a DISTINCT file
+    from Store A, the app db, the checkpointer, and the skill registry.
+    """
+    return StoreB(path or store_b_path())
