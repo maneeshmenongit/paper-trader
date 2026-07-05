@@ -15,6 +15,7 @@ Each implements the NewsSource Protocol. All run VADER sentiment on items before
 from __future__ import annotations
 
 import urllib.parse
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import feedparser
@@ -23,7 +24,6 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # TODO(T05): import from paper_trader.domain once the NewsItem model exists.
 # from paper_trader.domain import NewsItem
-from dataclasses import dataclass, field
 
 
 @dataclass

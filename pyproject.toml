@@ -55,7 +55,7 @@ dev = [
 paper-trader-cycle = "paper_trader.run_cycle:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/paper_trader"]
+packages = ["src/paper_trader", "src/steward"]
 
 [tool.ruff]
 line-length = 100
