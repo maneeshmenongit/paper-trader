@@ -164,3 +164,125 @@ def _maybe_json(value: Any) -> Any:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return value
+
+
+# ─── markdown rendering (I-7, DT-13.3) ───────────────────────────────────
+
+def render_markdown(rec: Reconstruction) -> str:
+    """Render a reconstruction as a human-facing markdown document. Read-only."""
+    lines: list[str] = []
+    lines.append(f"# Replay — cycle `{rec.cycle_id}`")
+    lines.append("")
+
+    # Loud top-of-document trust flag (I-8): UNTRUSTED pins surface first.
+    if rec.untrusted_pins:
+        lines.append(f"> ⚠ **UNTRUSTED** — {len(rec.untrusted_pins)} pin(s) failed "
+                     f"hash verification: {', '.join(f'`{p}`' for p in rec.untrusted_pins)}. "
+                     f"Content is rendered but must not be trusted.")
+        lines.append("")
+    else:
+        lines.append("> ✓ All skill pins hash-VERIFIED.")
+        lines.append("")
+
+    # source (1): the frozen situation.
+    lines.append("## Frozen situation (cycle header)")
+    lines.append("")
+    if rec.header is None:
+        lines.append("_no cycle header found for this cycle_id._")
+        lines.append("")
+    else:
+        h = rec.header
+        lines.append(f"- **trigger:** {h['trigger_kind']}")
+        lines.append(f"- **decision_mode:** {h['decision_mode']}  (rule|llm tag)")
+        lines.append(f"- **status:** {h['status']}")
+        lines.append(f"- **started_at:** {h['started_at']}  **ended_at:** {h['ended_at']}")
+        if h.get("orchestrator_rationale"):
+            lines.append(f"- **rationale:** {h['orchestrator_rationale']}")
+        lines.append("")
+        lines.append("**Frozen orchestrator_input:**")
+        lines.append("")
+        lines.append("```json")
+        lines.append(_pretty(h["orchestrator_input"]))
+        lines.append("```")
+        lines.append("")
+        lines.append("**Cycle-shape decision (orchestrator_decision):**")
+        lines.append("")
+        lines.append("```json")
+        lines.append(_pretty(h["orchestrator_decision"]))
+        lines.append("```")
+        lines.append("")
+
+    # sources (2)+(3): each agent's frozen decision + the skill it ran under.
+    lines.append("## Agent invocations (frozen decisions + pinned skill)")
+    lines.append("")
+    for inv in rec.invocations:
+        badge = {VERIFIED: "✓ VERIFIED", UNTRUSTED: "⚠ UNTRUSTED",
+                 MISSING: "✗ MISSING"}[inv.trust]
+        lines.append(f"### {inv.agent_name}  —  `{inv.skill_version_id}`  [{badge}]")
+        lines.append("")
+        lines.append(f"- **invocation_id:** {inv.invocation_id}")
+        lines.append(f"- **status:** {inv.status}  "
+                     f"**timing:** {inv.started_at} → {inv.ended_at}")
+        lines.append(f"- **hash:** stored `{_short(inv.stored_hash)}` / "
+                     f"recomputed `{_short(inv.recomputed_hash)}`")
+        lines.append("")
+        lines.append("**agent_input (frozen):**")
+        lines.append("")
+        lines.append("```json")
+        lines.append(_pretty(inv.agent_input))
+        lines.append("```")
+        lines.append("")
+        lines.append("**agent_output (frozen):**")
+        lines.append("")
+        lines.append("```json")
+        lines.append(_pretty(inv.agent_output))
+        lines.append("```")
+        lines.append("")
+        lines.append("**skill content it ran under (content-in-row):**")
+        lines.append("")
+        if inv.skill_content is None:
+            lines.append("_pinned version not found in the registry._")
+        else:
+            lines.append("```yaml")
+            lines.append(inv.skill_content)
+            lines.append("```")
+        lines.append("")
+
+    # source (4): the observer's Store B findings for this cycle.
+    lines.append(f"## Ledger findings (Store B) — {len(rec.ledger_entries)} entr"
+                 f"{'y' if len(rec.ledger_entries) == 1 else 'ies'}")
+    lines.append("")
+    if not rec.ledger_entries:
+        lines.append("_meaningful silence — the observer found no divergence this cycle._")
+        lines.append("")
+    for entry in rec.ledger_entries:
+        lines.append(f"### `{entry['entry_id']}` — {entry['observation_type']}")
+        lines.append("")
+        lines.append(f"- **subject:** {entry['subject']}")
+        lines.append(f"- **author:** {entry['author']}")
+        lines.append(f"- **observed_at:** {entry['observed_at']}")
+        # cross-cycle references (outcome-mismatch cites the settling invocation).
+        lines.append(f"- **invocation_id (cited):** {entry['invocation_id']}")
+        lines.append("")
+        lines.append("**evidence:**")
+        lines.append("")
+        lines.append("```json")
+        lines.append(_pretty(entry["evidence"]))
+        lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _pretty(value: Any) -> str:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+        return json.dumps(parsed, indent=2, sort_keys=True, default=str)
+    return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+
+def _short(h: str | None) -> str:
+    return (h[:12] + "…") if h else "—"
