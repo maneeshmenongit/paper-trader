@@ -22,6 +22,11 @@ from paper_trader.agents.enforce import run_with_write_enforcement
 from paper_trader.emission import Emitter
 from paper_trader.graph import decisions
 from paper_trader.graph.emit_boundary import run_agent_with_emission
+from paper_trader.graph.freeze import (
+    build_orchestrator_decision,
+    build_orchestrator_input,
+    cycle_status,
+)
 from paper_trader.graph.state import CycleState
 
 
@@ -37,6 +42,8 @@ class Supervisor:
         emitter: Emitter | None = None,
         clock: Any | None = None,
         skill_pins: dict[str, str] | None = None,
+        cycle_config: dict[str, Any] | None = None,
+        trigger_kind: str = "schedule",
     ):
         self.agents = {
             "filter": filter_agent,
@@ -58,6 +65,8 @@ class Supervisor:
         self.emitter = emitter
         self.clock = clock
         self.skill_pins = skill_pins or {}
+        self.cycle_config = cycle_config or {}
+        self.trigger_kind = trigger_kind
 
     def _emitting(self) -> bool:
         return self.emitter is not None and self.emitter.enabled and self.clock is not None
@@ -83,5 +92,28 @@ class Supervisor:
             seq += 1
             node = self._router[node](state)
             state.next_agent = node
+
+        # Cycle terminus: emit the single immutable cycle_header (DT-4.2/4.4),
+        # which flushes the buffered invocations (they FK to the header). This is
+        # the ONLY header write and happens once. Non-blocking.
+        if self._emitting():
+            assert self.emitter is not None and self.clock is not None
+            if state.ended_at is None:
+                state.ended_at = self.clock.now()
+            self.emitter.emit_cycle_header(
+                cycle_id=state.cycle_id,
+                started_at=state.started_at.isoformat(),
+                ended_at=state.ended_at.isoformat(),
+                trigger_kind=self.trigger_kind,
+                orchestrator_input=build_orchestrator_input(
+                    state, cycle_config=self.cycle_config
+                ),
+                orchestrator_decision=build_orchestrator_decision(state),
+                # DT-4.4: all v1 decisions are deterministic; the dormant LLM slot
+                # never yields 'llm', so decision_mode is always 'rule'.
+                decision_mode="rule",
+                orchestrator_rationale=None,
+                status=cycle_status(state),
+            )
 
         return state
