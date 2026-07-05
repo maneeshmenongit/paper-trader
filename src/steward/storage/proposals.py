@@ -110,6 +110,15 @@ class ProposalStore:
             ).fetchone()
         return dict(row) if row is not None else None
 
+    def list_by_status(self, status: str) -> list[dict[str, Any]]:
+        """All proposals in a given status (startup reconciliation queries APPROVED)."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM proposals WHERE status = ? ORDER BY proposal_id",
+                (status,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def list_open(self) -> list[dict[str, Any]]:
         """Proposals in PROPOSED/APPROVED/IN_WINDOW (for `gate list`)."""
         placeholders = ",".join("?" for _ in OPEN_STATUSES)

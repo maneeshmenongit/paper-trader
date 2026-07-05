@@ -55,7 +55,7 @@ def _gate(env, session="session-A", clock=None):
 # ─── gate list ───────────────────────────────────────────────────────────
 
 def test_list_shows_open_proposals(env):
-    rows = _gate(env).list()
+    rows = _gate(env).list_proposals()
     assert len(rows) == 1
     assert rows[0]["proposal_id"] == "prop-1"
     assert rows[0]["status"] == "PROPOSED"

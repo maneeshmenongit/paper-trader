@@ -51,8 +51,8 @@ class Gate:
 
     # ─── read side (Task 3) ──────────────────────────────────────────────
 
-    def list(self) -> list[dict[str, Any]]:
-        """Return open proposals (PROPOSED/APPROVED/IN_WINDOW) — a summary view."""
+    def list_proposals(self) -> list[dict[str, Any]]:
+        """`gate list`: open proposals (PROPOSED/APPROVED/IN_WINDOW) — summary view."""
         return [
             {
                 "proposal_id": p["proposal_id"],
@@ -177,6 +177,60 @@ class Gate:
         self.proposals.set_status_with_decision(
             proposal_id, status=status, decided_at=None, decided_by=None,
             decision_note=None,
+        )
+
+    # ─── startup reconciliation (Task 6, DT-12.3 crash-safety) ───────────
+
+    def reconcile(self) -> list[dict[str, str]]:
+        """Detect + resolve any APPROVED proposal whose fork state is incomplete.
+
+        APPROVED is a transient status — a clean approve() passes through it to
+        IN_WINDOW in one call. An APPROVED proposal at startup means a crash
+        mid-sequence. Resolution per the ruling (never leave a half-applied fork):
+          - fork committed (a version row exists for the proposal, crash between
+            (b) and (c)) -> COMPLETE step (c): stamp window + move to IN_WINDOW,
+            and repair the pointer if it did not flip.
+          - fork NOT committed (no version row, crash between (a) and (b)) ->
+            ROLL BACK the approval to PROPOSED (no half-applied fork; re-approve).
+
+        Returns a list of {proposal_id, action} for what it did.
+        """
+        actions: list[dict[str, str]] = []
+        for proposal in self.proposals.list_by_status("APPROVED"):
+            pid = proposal["proposal_id"]
+            forked = self.registry.version_by_proposal(pid)
+            if forked is not None:
+                # crash between (b) and (c): finish the bookkeeping.
+                self._repair_pointer(forked)
+                self._complete_window(proposal, forked["version_id"])
+                actions.append({"proposal_id": pid, "action": "completed_window"})
+            else:
+                # crash between (a) and (b): roll the approval back.
+                self._revert_to(pid, "PROPOSED")
+                actions.append({"proposal_id": pid, "action": "rolled_back_to_proposed"})
+        return actions
+
+    def _repair_pointer(self, forked: dict[str, str]) -> None:
+        """If the fork committed but the pointer somehow did not flip, flip it
+        (the fork is atomic, so this is belt-and-braces; safe + idempotent)."""
+        current = self.registry.get_current_version_id(
+            application_id=forked["application_id"], agent_name=forked["agent_name"],
+            skill_name=forked["skill_name"],
+        )
+        if current != forked["version_id"]:
+            self.registry.set_current_version(
+                application_id=forked["application_id"], agent_name=forked["agent_name"],
+                skill_name=forked["skill_name"], current_version_id=forked["version_id"],
+                updated_at=self.clock.now().isoformat(),
+            )
+
+    def _complete_window(self, proposal: dict[str, Any], new_version_id: str) -> None:
+        now = self.clock.now()
+        closes = now + timedelta(days=WINDOW_DAYS)
+        self.proposals.set_in_window(
+            proposal["proposal_id"], new_version_id=new_version_id,
+            window_opened_at=now.isoformat(),
+            window_closes_at=self._window_closes(closes.isoformat()),
         )
 
     # ─── ritual (Task 4) — cooling-off gate for approvals ────────────────

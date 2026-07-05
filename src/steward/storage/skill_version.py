@@ -232,6 +232,17 @@ class SkillVersionRegistry:
                 ),
             )
 
+    def version_by_proposal(self, proposal_id: str) -> dict[str, str] | None:
+        """Return the version row created by a proposal (crash reconciliation:
+        detects whether a fork committed before a crash), or None."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT version_id, application_id, agent_name, skill_name "
+                "FROM skill_versions WHERE created_by_proposal_id = ?",
+                (proposal_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def get_current_version_id(
         self,
         *,

@@ -267,7 +267,8 @@ def test_no_delete_method_on_surface():
         "set_current_version",
         "get_current_version_id",
         "connection",
-        "fork_version",   # Wave 5: the atomic slow-loop fork (insert + flip)
+        "fork_version",         # Wave 5: the atomic slow-loop fork (insert + flip)
+        "version_by_proposal",  # Wave 5: crash-reconciliation read
     }
     for name in public:
         assert "delete" not in name.lower()
