@@ -49,3 +49,46 @@ def filter_quote_freshness_minutes(skill: Any) -> int:
     if not m:
         raise ValueError(f"no freshness minutes in R4: {text!r}")
     return int(m.group(1))
+
+
+def _pct(token: str) -> float:
+    """'5%' -> 0.05 ; '0.5%' -> 0.005."""
+    return float(token.rstrip("%")) / 100.0
+
+
+def _grp(pattern: str, text: str, group: int = 1) -> str:
+    """Search and return a capture group, raising if the skill text lacks it."""
+    m = re.search(pattern, text)
+    if m is None:
+        raise ValueError(f"pattern {pattern!r} not found in skill text: {text!r}")
+    return m.group(group)
+
+
+class ExecuteParams:
+    """Effective Execute risk parameters, all parsed from the loaded skill.
+
+    Every value is skill content (G1) — none is hardcoded. Attribute-per-value so
+    the agent reads them by name; the mirror-contract (Task 9) checks these equal
+    the ratified skill values.
+    """
+
+    def __init__(self, skill: Any):
+        sizing = rule_text(skill, "sizing")
+        exposure = rule_text(skill, "exposure")
+        loss_halt = rule_text(skill, "loss_halt")
+        gates = rule_text(skill, "execution_gates")
+
+        self.kelly_fraction = float(_grp(r"Kelly\s+([\d.]+)", sizing))
+        self.max_position_pct = _pct(_grp(r"max position\s+([\d.]+%)", sizing))
+        self.min_notional = _dollar_amount(_grp(r"min notional\s+(\$[\d.]+)", sizing))
+
+        self.max_total_exposure_pct = _pct(_grp(r"max total exposure\s+([\d.]+%)", exposure))
+        self.max_same_sector = int(_grp(r"max\s+(\d+)\s+same-sector", exposure))
+        self.max_open_positions = int(_grp(r"max\s+(\d+)\s+open positions", exposure))
+
+        self.daily_loss_halt_pct = _pct(_grp(r"daily simulated loss\s*>\s*([\d.]+%)", loss_halt))
+
+        # The FIRST "confidence ≥ X" in the gates rule is the effective floor
+        # (the bracketed annotation repeats it, but the operative value is first).
+        self.min_confidence = float(_grp(r"confidence\s*≥\s*([\d.]+)", gates))
+        self.min_magnitude_pct = _pct(_grp(r"expected magnitude\s*≥\s*([\d.]+%)", gates))
