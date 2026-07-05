@@ -19,7 +19,9 @@ from __future__ import annotations
 from typing import Any
 
 from paper_trader.agents.enforce import run_with_write_enforcement
+from paper_trader.emission import Emitter
 from paper_trader.graph import decisions
+from paper_trader.graph.emit_boundary import run_agent_with_emission
 from paper_trader.graph.state import CycleState
 
 
@@ -32,6 +34,9 @@ class Supervisor:
         predict_agent: Any,
         execute_agent: Any,
         postmortem_agent: Any,
+        emitter: Emitter | None = None,
+        clock: Any | None = None,
+        skill_pins: dict[str, str] | None = None,
     ):
         self.agents = {
             "filter": filter_agent,
@@ -48,15 +53,34 @@ class Supervisor:
             "predict": decisions.decide_after_predict,
             "execute": decisions.decide_after_execute,
         }
+        # Store A emission (Wave 3). When emitter is None (or disabled), the cycle
+        # runs the plain write-enforcement path — byte-identical behavior.
+        self.emitter = emitter
+        self.clock = clock
+        self.skill_pins = skill_pins or {}
+
+    def _emitting(self) -> bool:
+        return self.emitter is not None and self.emitter.enabled and self.clock is not None
 
     async def run_cycle(self, state: CycleState) -> CycleState:
         # Decision A (deterministic): settle-before-scan.
         node = decisions.decide_after_start(state)
         state.next_agent = node
+        seq = 0
 
         while node != "end":
             agent = self.agents[node]
-            state = await run_with_write_enforcement(agent, state)
+            if self._emitting():
+                assert self.emitter is not None
+                state = await run_agent_with_emission(
+                    agent, state,
+                    emitter=self.emitter, clock=self.clock,
+                    skill_version_id=self.skill_pins.get(agent.name, ""),
+                    invocation_seq=seq,
+                )
+            else:
+                state = await run_with_write_enforcement(agent, state)
+            seq += 1
             node = self._router[node](state)
             state.next_agent = node
 
