@@ -105,10 +105,13 @@ class FakeLLMRouter:
         *,
         tokens_per_call: int = 10,
         fail_purposes: set[str] | None = None,
+        budget_exhausted_after: int | None = None,
     ):
         self.responses = responses or {}
         self.tokens_per_call = tokens_per_call
         self.fail_purposes = fail_purposes or set()
+        # Raise BudgetExhaustedError once this many successful calls have occurred.
+        self.budget_exhausted_after = budget_exhausted_after
         self.calls: list[str] = []
 
     def call(
@@ -119,6 +122,13 @@ class FakeLLMRouter:
         max_tokens: int = 1000,
         json_mode: bool = False,
     ) -> tuple[str, int]:
+        if (
+            self.budget_exhausted_after is not None
+            and len(self.calls) >= self.budget_exhausted_after
+        ):
+            from paper_trader.llm.errors import BudgetExhaustedError
+
+            raise BudgetExhaustedError("simulated budget exhaustion")
         if purpose in self.fail_purposes:
             raise RuntimeError(f"simulated LLM failure for {purpose}")
         self.calls.append(purpose)
