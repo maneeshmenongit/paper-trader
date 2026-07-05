@@ -81,13 +81,14 @@ def test_open_registry_and_load_seeded_skill(tmp_path):
     assert "rules" in skill  # loaded read-only through the framework loader
 
 
-def test_no_store_ab_paths_wired():
-    # config exposes ONLY the skill-registry path this wave — no Store A/B seam.
+def test_no_store_b_path_wired():
+    # Store A is wired in Wave 3 (emission); Store B (the ledger) must stay
+    # UNWIRED — nothing in the fast loop writes the ledger.
     import paper_trader.config as cfg
 
-    names = dir(cfg)
-    assert not any("store_a" in n.lower() or "store_b" in n.lower() for n in names)
-    assert not any("ledger" in n.lower() for n in names)
+    names = [n.lower() for n in dir(cfg)]
+    assert not any("store_b" in n for n in names)
+    assert not any("ledger" in n for n in names)
 
 
 # ─── app-db repository round-trip ────────────────────────────────────────
