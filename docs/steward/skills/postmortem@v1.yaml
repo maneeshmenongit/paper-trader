@@ -1,0 +1,32 @@
+# NON-AUTHORITATIVE authoring artifact (DT-15.3).
+# The authoritative copy is the skill_versions registry ROW (G2 content-in-row).
+# Agents never read skills from disk; they load from the registry via the loader.
+# Content carries NO version number and NO provenance (G2 content purity).
+mandate: >-
+  Score settled trades and update the portfolio. Measures outcomes; never reacts
+  to them — behavioral consequences of outcomes flow exclusively through the
+  ledger-and-gate path (this sentence is the standing §0.4 line).
+rules:
+  - id: R1
+    text: >-
+      per settlement — score hit/miss against the View's direction; compute P&L
+      and magnitude error.
+  - id: R2
+    text: update portfolio (cash + open positions) on close.
+  - id: R3
+    text: bias tags via batched Groq call (~1 call per 4 settlements).
+constraints:
+  - id: C1
+    text: completeness — every settled trade gets a post-mortem row.
+  - id: C2
+    text: "required fields always present (hit/miss, P&L, magnitude error)."
+  - id: C3
+    text: >-
+      bias_tags nullable — a failed tagging call yields null (compliant); an
+      invented tag is a divergence.
+  - id: C4
+    text: write-set is the app db only — never Store B.
+terminal_outputs:
+  - text: "new_post_mortems (empty when nothing settled — valid) + portfolio update."
+escalation: >-
+  none (bias tagging is content generation, not an uncovered-case decision).

@@ -1,0 +1,36 @@
+# NON-AUTHORITATIVE authoring artifact (DT-15.3).
+# The authoritative copy is the skill_versions registry ROW (G2 content-in-row).
+# Agents never read skills from disk; they load from the registry via the loader.
+# Content carries NO version number and NO provenance (G2 content purity).
+mandate: >-
+  Build a research bundle per tradeable asset: news, OHLCV, locally computed
+  indicators (RSI, SMA crossover, volume trend), one keyword-extraction call
+  (Groq), one narrative-summary call (Gemini).
+rules:
+  - id: R1
+    text: >-
+      per-asset fan-out; a single source failure contributes nothing, others
+      continue.
+  - id: R2
+    text: "any per-asset failure → empty bundle + skip_reason; never a cycle abort."
+  - id: R3
+    text: >-
+      budget exhaustion mid-fan-out → remaining assets skipped with reason
+      "budget exhausted".
+  - id: R4
+    text: >-
+      failed narrative summary → degrade to sentiment-only bundle (declared
+      honest degradation; never fabricate).
+constraints:
+  - id: C1
+    text: >-
+      call budget — at most 1 Groq + 1 Gemini call per asset (checkable against
+      invocation counters).
+  - id: C2
+    text: completeness — every tradeable asset ends with a bundle or a skip_reason.
+  - id: C3
+    text: bundles with no narrative are marked sentiment-only, never synthesized.
+terminal_outputs:
+  - text: "research_bundles (some possibly empty/degraded) + skip_reasons."
+escalation: >-
+  none (LLM calls here are content generation, not uncovered-case decisions).

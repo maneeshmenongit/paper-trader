@@ -40,6 +40,11 @@ dependencies = [
 
     # Config
     "tomli>=2.0.0; python_version<'3.11'",
+    # Skill content is serialized as YAML in the skill-version rows (I-9);
+    # the steward loader (DT-10.2) parses it.
+    "pyyaml>=6.0",
+    # ULID cycle_id (DT-4.1): monotonic, ordered, 26-char TEXT ids for replay.
+    "python-ulid>=2.0",
 ]
 
 [project.optional-dependencies]

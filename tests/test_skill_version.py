@@ -11,6 +11,7 @@ import sqlite3
 
 import pytest
 
+from steward.storage.content_hash import compute_content_hash
 from steward.storage.skill_version import SkillVersionRegistry
 
 SKILL_VERSION_COLUMNS = [
@@ -47,7 +48,6 @@ def _v1_kwargs(**overrides) -> dict:
         agent_name="predict",
         skill_name="predict",
         version_ordinal=1,
-        content_hash="deadbeef",
         content="mandate: produce views ...",
         parent_version_id=None,
         created_by_proposal_id=None,
@@ -103,10 +103,23 @@ def test_insert_and_roundtrip(reg):
             "SELECT * FROM skill_versions WHERE version_id='paper-trader/predict/predict@v1'"
         ).fetchone()
     assert row["content"] == "mandate: produce views ..."
-    assert row["content_hash"] == "deadbeef"
+    # Hash is computed by the writer via the canonical function, not supplied.
+    assert row["content_hash"] == compute_content_hash("mandate: produce views ...")
     assert row["parent_version_id"] is None       # null only for @v1
     assert row["created_by_proposal_id"] is None
     assert row["origin"] == "initial-authoring"
+
+
+def test_writer_computes_hash_and_rejects_supplied_hash(reg):
+    # Distinct content -> distinct computed hash (writer is the sole producer).
+    reg.insert_skill_version(**_v1_kwargs(content="alpha content"))
+    with reg.connection() as conn:
+        row = conn.execute("SELECT content_hash FROM skill_versions").fetchone()
+    assert row["content_hash"] == compute_content_hash("alpha content")
+
+    # content_hash is no longer an accepted parameter.
+    with pytest.raises(TypeError):
+        reg.insert_skill_version(**_v1_kwargs(content_hash="deadbeef"))
 
 
 def test_v2_lineage(reg):
@@ -115,7 +128,7 @@ def test_v2_lineage(reg):
         **_v1_kwargs(
             version_id="paper-trader/predict/predict@v2",
             version_ordinal=2,
-            content_hash="cafef00d",
+            content="mandate: produce views (v2) ...",
             parent_version_id="paper-trader/predict/predict@v1",
             created_by_proposal_id="prop-1",
             origin="slow-loop-fork",
