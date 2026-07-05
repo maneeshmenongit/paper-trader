@@ -109,3 +109,30 @@ class ProposalStore:
                 "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def list_open(self) -> list[dict[str, Any]]:
+        """Proposals in PROPOSED/APPROVED/IN_WINDOW (for `gate list`)."""
+        placeholders = ",".join("?" for _ in OPEN_STATUSES)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM proposals WHERE status IN ({placeholders}) "
+                f"ORDER BY created_at, proposal_id",
+                OPEN_STATUSES,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def record_first_view(
+        self, proposal_id: str, *, session: str, viewed_at: str
+    ) -> None:
+        """Stamp first-viewed session+timestamp ONCE (idempotent — a later view
+        never overwrites the first). Backs the cooling-off ritual."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE proposals
+                SET first_viewed_at = COALESCE(first_viewed_at, ?),
+                    first_viewed_session = COALESCE(first_viewed_session, ?)
+                WHERE proposal_id = ?
+                """,
+                (viewed_at, session, proposal_id),
+            )
