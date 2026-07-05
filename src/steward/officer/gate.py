@@ -15,10 +15,16 @@ reconciliation (Task 6) build on this class.
 
 from __future__ import annotations
 
+import json
+from datetime import timedelta
 from typing import Any
 
 from steward.officer.lifecycle import validate_transition
 from steward.officer.review_doc import render_review_doc
+
+# DT-12.3 stabilization window: 14 days OR 20 settled trades, whichever later.
+WINDOW_DAYS = 14
+WINDOW_SETTLED_TRADES = 20
 
 
 class GateError(Exception):
@@ -87,6 +93,90 @@ class Gate:
             proposal_id, status="REJECTED",
             decided_at=self.clock.now().isoformat(),
             decided_by=decided_by, decision_note=decision_note,
+        )
+
+    # ─── approve + atomic fork (Task 5) ──────────────────────────────────
+
+    def approve(
+        self,
+        *,
+        proposal_id: str,
+        decided_by: str,
+        decision_note: str,
+        new_version_id: str,
+        new_content: str,
+    ) -> str:
+        """Approve a proposal and execute the atomic fork. Returns new_version_id.
+
+        Order (DT-12.1): (a) write approval; (b) SINGLE-FILE atomic registry
+        transaction — new version row + currency-pointer flip, all-or-nothing;
+        (c) window + IN_WINDOW. In-process rollback-on-error across (a)-(c): if the
+        fork or bookkeeping fails, the approval is reverted so no half-applied fork
+        persists (a crash mid-sequence is caught by startup reconciliation, Task 6).
+
+        This is the ONLY place the fork is invoked. new_content is the forked skill
+        text (human-provided at approval — the docs define proposed_change as the
+        structured change but not a YAML-patch engine; the human authors @vN's
+        content, consistent with human-gated approval).
+        """
+        proposal = self._require(proposal_id)
+        self._require_note(decision_note)
+        validate_transition(proposal["status"], "APPROVED")
+        self._ensure_cooling_off(proposal)  # high-complexity cooling-off
+
+        now = self.clock.now()
+        prior_status = proposal["status"]
+
+        # (a) write approval to the proposal.
+        self.proposals.set_status_with_decision(
+            proposal_id, status="APPROVED", decided_at=now.isoformat(),
+            decided_by=decided_by, decision_note=decision_note,
+        )
+        try:
+            # (b) ATOMIC registry fork (single-file transaction).
+            self.registry.fork_version(
+                base_version_id=proposal["base_version_id"],
+                new_version_id=new_version_id,
+                content=new_content,
+                created_by_proposal_id=proposal_id,
+                grounding_refs=proposal["evidence_refs"],  # copied from the proposal
+                created_at=now.isoformat(),
+            )
+        except Exception:
+            # fork failed -> revert (a); no version row, no pointer move happened.
+            self._revert_to(proposal_id, prior_status)
+            raise
+
+        try:
+            # (c) window + IN_WINDOW.
+            closes = now + timedelta(days=WINDOW_DAYS)
+            self.proposals.set_in_window(
+                proposal_id, new_version_id=new_version_id,
+                window_opened_at=now.isoformat(),
+                window_closes_at=self._window_closes(closes.isoformat()),
+            )
+        except Exception:
+            # bookkeeping failed AFTER the fork committed. The fork stands (never
+            # roll back a committed pointer flip); mark the proposal APPROVED-not-
+            # yet-windowed. Startup reconciliation (Task 6) completes step (c).
+            raise
+        return new_version_id
+
+    @staticmethod
+    def _window_closes(iso_time_bound: str) -> str:
+        """Encode 'whichever later of 14 days / 20 settled trades'. The time bound
+        is the concrete date; the trade-count condition rides alongside it."""
+        return json.dumps({
+            "time_bound": iso_time_bound,
+            "min_settled_trades": WINDOW_SETTLED_TRADES,
+            "rule": "whichever_later",
+        }, sort_keys=True)
+
+    def _revert_to(self, proposal_id: str, status: str) -> None:
+        """Reset a proposal's decision fields back to a prior status (rollback)."""
+        self.proposals.set_status_with_decision(
+            proposal_id, status=status, decided_at=None, decided_by=None,
+            decision_note=None,
         )
 
     # ─── ritual (Task 4) — cooling-off gate for approvals ────────────────

@@ -126,9 +126,9 @@ class ProposalStore:
         proposal_id: str,
         *,
         status: str,
-        decided_at: str,
-        decided_by: str,
-        decision_note: str,
+        decided_at: str | None,
+        decided_by: str | None,
+        decision_note: str | None,
         conn: sqlite3.Connection | None = None,
     ) -> None:
         """Record a gate decision (status + note + decided_by/at). Used by reject
@@ -140,6 +140,30 @@ class ProposalStore:
             WHERE proposal_id = ?
         """
         args = (status, decided_at, decided_by, decision_note, proposal_id)
+        if conn is not None:
+            conn.execute(sql, args)
+        else:
+            with self.connection() as own:
+                own.execute(sql, args)
+
+    def set_in_window(
+        self,
+        proposal_id: str,
+        *,
+        new_version_id: str,
+        window_opened_at: str,
+        window_closes_at: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        """Move an APPROVED proposal to IN_WINDOW, stamping the window + the new
+        version id. evaluation stays NULL (v1 stub). Optionally in a transaction."""
+        sql = """
+            UPDATE proposals
+            SET status = 'IN_WINDOW', new_version_id = ?,
+                window_opened_at = ?, window_closes_at = ?
+            WHERE proposal_id = ?
+        """
+        args = (new_version_id, window_opened_at, window_closes_at, proposal_id)
         if conn is not None:
             conn.execute(sql, args)
         else:
