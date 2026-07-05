@@ -19,21 +19,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-# TODO(T15): import from paper_trader.graph.state once the CycleState model exists.
-# from paper_trader.graph.state import CycleState
-
-
-class CycleState(Protocol):
-    """Stub stand-in for the real CycleState (arrives in T15).
-
-    Only the surface this module touches is declared, so enforce_writes type-checks
-    and imports cleanly during scaffolding. Replace the import above when graph/state.py
-    lands.
-    """
-
-    completed_agents: list[str]
-
-    def model_dump(self) -> dict: ...
+# The real CycleState (Wave 2.5 Task 1) replaces the former scaffolding stub.
+from paper_trader.graph.state import CycleState
 
 
 class Agent(Protocol):
