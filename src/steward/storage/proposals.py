@@ -121,6 +121,31 @@ class ProposalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def set_status_with_decision(
+        self,
+        proposal_id: str,
+        *,
+        status: str,
+        decided_at: str,
+        decided_by: str,
+        decision_note: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        """Record a gate decision (status + note + decided_by/at). Used by reject
+        (Task 4) and — inside the fork transaction — by approve (Task 5). When a
+        connection is supplied the write joins that transaction (atomicity)."""
+        sql = """
+            UPDATE proposals
+            SET status = ?, decided_at = ?, decided_by = ?, decision_note = ?
+            WHERE proposal_id = ?
+        """
+        args = (status, decided_at, decided_by, decision_note, proposal_id)
+        if conn is not None:
+            conn.execute(sql, args)
+        else:
+            with self.connection() as own:
+                own.execute(sql, args)
+
     def record_first_view(
         self, proposal_id: str, *, session: str, viewed_at: str
     ) -> None:

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from steward.officer.lifecycle import validate_transition
 from steward.officer.review_doc import render_review_doc
 
 
@@ -73,6 +74,48 @@ class Gate:
         # re-read so the rendered doc reflects the stamp if it was the first view.
         proposal = self._require(proposal_id)
         return render_review_doc(proposal, store_b=self.store_b)
+
+    # ─── reject (Task 4) ─────────────────────────────────────────────────
+
+    def reject(self, proposal_id: str, *, decided_by: str, decision_note: str) -> None:
+        """Reject a proposal. decision_note is MANDATORY and non-empty."""
+        proposal = self._require(proposal_id)
+        self._require_note(decision_note)
+        # lifecycle: only a PROPOSED (or APPROVED) proposal can be rejected.
+        validate_transition(proposal["status"], "REJECTED")
+        self.proposals.set_status_with_decision(
+            proposal_id, status="REJECTED",
+            decided_at=self.clock.now().isoformat(),
+            decided_by=decided_by, decision_note=decision_note,
+        )
+
+    # ─── ritual (Task 4) — cooling-off gate for approvals ────────────────
+
+    def _ensure_cooling_off(self, proposal: dict[str, Any]) -> None:
+        """High-complexity proposals must be decided in a DIFFERENT session than
+        first shown (§8.4 structural cooling-off). Low complexity: no cooling-off.
+
+        Raises GateError if a high-complexity proposal has not been shown yet, or
+        is being decided in the same session it was first viewed.
+        """
+        if proposal["complexity_tag"] != "high":
+            return  # low: same-session ack allowed
+        first_session = proposal["first_viewed_session"]
+        if first_session is None:
+            raise GateError(
+                "high-complexity proposal must be shown (gate show) before it can "
+                "be approved — cooling-off requires a prior viewing session"
+            )
+        if first_session == self.session:
+            raise GateError(
+                "high-complexity approval is blocked in the same session it was "
+                "first viewed — cool off and approve in a later session (§8.4)"
+            )
+
+    @staticmethod
+    def _require_note(decision_note: str) -> None:
+        if not decision_note or not decision_note.strip():
+            raise GateError("decision_note is mandatory and non-empty on every decision")
 
     # ─── helpers ─────────────────────────────────────────────────────────
 
