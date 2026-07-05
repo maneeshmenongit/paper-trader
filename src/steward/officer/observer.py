@@ -84,12 +84,17 @@ class Observer:
         ledger_writer: ObserverLedgerWriter,
         predicates: PredicateRegistry,
         clock: Any,
+        outcome_mismatch_detector: Any | None = None,
     ):
         self.store_a = store_a
         self.registry_conn = registry_conn  # skill-version registry (read-only)
         self.ledger = ledger_writer
         self.predicates = predicates
         self.clock = clock
+        # DT-11.5: an app-supplied detector (views) -> [Divergence] for
+        # outcome-mismatches. Its Divergences cite the settling PostMortem
+        # invocation and reference the original prediction invocation in evidence.
+        self.outcome_mismatch_detector = outcome_mismatch_detector
         self.failed: list[str] = []  # durable detection of un-observed cycles
 
     def observe_cycle(self, cycle_id: str) -> list[Divergence]:
@@ -108,11 +113,11 @@ class Observer:
 
     def _observe(self, cycle_id: str) -> list[Divergence]:
         invocations = self._load_invocations(cycle_id)
+        views = [self._build_view(inv) for inv in invocations]
         found: list[Divergence] = []
         seq = 0
 
-        for inv in invocations:
-            view = self._build_view(inv)
+        for view in views:
             constraints = view.skill.get("constraints", []) if view.skill else []
             for constraint in constraints:
                 cid = constraint["id"]
@@ -122,6 +127,15 @@ class Observer:
                     self._emit(cycle_id, div, seq)
                     found.append(div)
                     seq += 1
+
+        # DT-11.5 outcome-mismatch pass (settlements land in later cycles): the
+        # detector cites the settling PostMortem invocation; the original
+        # prediction invocation is referenced in evidence.
+        if self.outcome_mismatch_detector is not None:
+            for div in self.outcome_mismatch_detector(views):
+                self._emit(cycle_id, div, seq)
+                found.append(div)
+                seq += 1
         return found
 
     def _build_view(self, inv: dict[str, Any]) -> InvocationView:
