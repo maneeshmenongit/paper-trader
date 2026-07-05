@@ -1,0 +1,51 @@
+# NON-AUTHORITATIVE authoring artifact (DT-15.3).
+# The authoritative copy is the skill_versions registry ROW (G2 content-in-row).
+# Agents never read skills from disk; they load from the registry via the loader.
+# Content carries NO version number and NO provenance (G2 content purity).
+mandate: >-
+  Produce per-symbol views by selecting among the declared forecasting methods.
+  Bounded: returns views to the invoker; never invokes sibling agents. Selection
+  is rules-first; LLM judgment only where no rule covers.
+methods:
+  roster:
+    - name: momentum
+    - name: mean_reversion
+    - name: arima
+  note: >-
+    each with its declared minimum input history (set at authoring from each
+    method's mathematical requirement).
+rules:
+  - id: R1
+    text: >-
+      a method lacking its minimum input history for the symbol is ineligible
+      this invocation.
+  - id: R2
+    text: "zero eligible methods → NoView (reason: no_eligible_method)."
+  - id: R3
+    text: "exactly one eligible method → select it; selection_mode: rule."
+  - id: R4
+    text: "multiple eligible methods → escalate to LLM selection; selection_mode: llm."
+constraints:
+  - id: C1
+    text: >-
+      a View requires selected-method confidence ≥ 0.60; below → NoView
+      (reason: below_confidence_threshold).
+  - id: C2
+    text: every NoView carries a non-empty reason.
+  - id: C3
+    text: "selection_rationale present if and only if selection_mode: llm."
+  - id: C4
+    text: >-
+      the momentum baseline shadow is computed every cycle for every researched
+      symbol, independent of selection, tagged is_baseline — the selector never
+      contaminates its own measuring stick.
+terminal_outputs:
+  - text: >-
+      View {symbol, method_selected, selection_mode, selection_rationale?,
+      direction, magnitude_pct, horizon, confidence, method_inputs_summary} |
+      NoView {symbol, reason, methods_considered}. NoView is a valid terminal
+      answer, never retried — routing-uncertainty is not a transient failure;
+      retry policy lives at the data-client layer.
+escalation: >-
+  LLM selects among eligible methods only; must output rationale; selection
+  recorded in the invocation record.

@@ -1,0 +1,52 @@
+# NON-AUTHORITATIVE authoring artifact (DT-15.3).
+# The authoritative copy is the skill_versions registry ROW (G2 content-in-row).
+# Agents never read skills from disk; they load from the registry via the loader.
+# Content carries NO version number and NO provenance (G2 content purity).
+mandate: >-
+  Convert actionable Views into simulated trades under the declared risk rules;
+  symmetric logging of every decision. Zero LLM calls.
+rules:
+  # the dissolved risk_gates.toml — every value is skill content
+  - id: sizing
+    text: "Sizing: fractional Kelly 0.25; max position 5% of portfolio; min notional $100."
+  - id: exposure
+    text: >-
+      Exposure: max total exposure 60% of portfolio; max 3 same-sector
+      positions; max 10 open positions.
+  - id: loss_halt
+    text: "Loss halt: no new trades if daily simulated loss > 5%."
+  - id: execution_gates
+    text: >-
+      Execution gates: require confidence ≥ 0.55 [confidence ≥ 0.55 — Execute's
+      independent risk-to-act floor. Currently shadowed by Predict's
+      forecast-quality threshold of 0.60 (I-10): every View reaching Execute
+      already clears 0.60, so this gate does not bind under @v1. Retained
+      deliberately, not as redundancy — Predict's 0.60 answers 'is the forecast
+      good enough to be a View at all,' Execute's 0.55 answers 'is it confident
+      enough to risk capital on,' two decisions the membrane keeps separately
+      ownable. The higher of the two floors binds; either is re-tunable via its
+      own gated fork. Execute's gate firing is an officer-observable signal that
+      the upstream threshold has dropped below 0.55.]; require expected magnitude
+      ≥ 0.5%.
+  - id: idempotency
+    text: >-
+      Idempotency: before writing a trade, check trade_decisions for this
+      prediction_id (crash-recovery double-write guard).
+constraints:
+  - id: C1
+    text: >-
+      no executed trade in breach of any declared cap (the officer's
+      highest-value predicate).
+  - id: C2
+    text: >-
+      symmetric logging — every View receives exactly one trade_decision; every
+      skip carries risk_reason.
+  - id: C3
+    text: zero LLM calls.
+  - id: C4
+    text: writes only through the declared write-set.
+terminal_outputs:
+  - text: >-
+      trade_decisions (executed=false with risk_reason is a fully valid outcome)
+      + new_paper_trades.
+escalation: none.

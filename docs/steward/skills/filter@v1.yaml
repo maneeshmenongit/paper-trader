@@ -1,0 +1,32 @@
+# NON-AUTHORITATIVE authoring artifact (DT-15.3).
+# The authoritative copy is the skill_versions registry ROW (G2 content-in-row).
+# Agents never read skills from disk; they load from the registry via the loader.
+# Content carries NO version number and NO provenance (G2 content purity).
+mandate: >-
+  Validate each watchlist entry for tradeability this cycle. Pure rule-based;
+  survivors → tradeable_assets, rejects → skip_reasons.
+rules:
+  - id: R1
+    text: market currently open for the asset type.
+  - id: R2
+    text: >-
+      liquidity — 20-day average daily dollar volume ≥ $10M (stocks); 24h volume
+      ≥ $50M (crypto).
+  - id: R3
+    text: symbol not already in an open paper position.
+  - id: R4
+    text: last quote fresher than 60 minutes.
+constraints:
+  - id: C1
+    text: >-
+      completeness — every watchlist entry lands in exactly one of
+      tradeable_assets / skip_reasons.
+  - id: C2
+    text: every skip carries the specific failed criterion.
+  - id: C3
+    text: zero LLM calls.
+terminal_outputs:
+  - text: >-
+      possibly-empty tradeable set + skip_reasons. An empty tradeable set is
+      valid (cycle ends gracefully at Decision C).
+escalation: none.
