@@ -14,8 +14,10 @@ Store A):
   flips it atomically with a version insert. That atomic transaction is NOT this
   task; here the insert and the pointer flip are separate primitives.
 
-Content hashing / hash verification (first consumer: replay) is not computed
-here — callers pass an already-computed ``content_hash``. The invocation pin in
+The stored ``content_hash`` is computed by the writer from ``content`` via the
+canonical ``compute_content_hash`` (Task 1) — never caller-supplied — so the
+stored hash can never disagree with the stored content. The loader (DT-10.2) and
+replay (Wave 6) recompute with the same function to verify. The invocation pin in
 Store A is a logical, app-layer-verified reference to ``version_id``.
 """
 
@@ -25,6 +27,8 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+
+from steward.storage.content_hash import compute_content_hash
 
 SCHEMA_PATH = Path(__file__).parent / "skill_version_schema.sql"
 
@@ -66,7 +70,6 @@ class SkillVersionRegistry:
         agent_name: str,
         skill_name: str,
         version_ordinal: int,
-        content_hash: str,
         content: str,
         parent_version_id: str | None,
         created_by_proposal_id: str | None,
@@ -79,10 +82,16 @@ class SkillVersionRegistry:
     ) -> None:
         """Append one skill version. Content and refs arrive already serialized.
 
+        ``content_hash`` is NOT a parameter — the writer computes it internally
+        from ``content`` via the canonical ``compute_content_hash`` (Task 1), so
+        the stored hash cannot disagree with the stored content. This is the sole
+        producer of the stored hash.
+
         ``parent_version_id`` / ``created_by_proposal_id`` are null only for
         ``@v1`` (``origin: initial-authoring``) — the anti-floating rule is
-        enforced at the app layer, not here. ``content_hash`` is precomputed.
+        enforced at the app layer, not here.
         """
+        content_hash = compute_content_hash(content)
         with self.connection() as conn:
             conn.execute(
                 """
