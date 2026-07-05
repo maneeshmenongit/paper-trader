@@ -30,12 +30,66 @@ def skills(tmp_path):
     return out
 
 
-def _view(agent, skill, output):
+def _view(agent, skill, output, agent_input=None):
     return InvocationView(
         invocation_id="cyc:000", cycle_id="cyc", agent_name=agent,
-        skill_version_id=version_id_for(agent), agent_input={}, agent_output=output,
-        skill=skill,
+        skill_version_id=version_id_for(agent), agent_input=agent_input or {},
+        agent_output=output, skill=skill,
     )
+
+
+# ─── Execute C1: absolute-cap arithmetic (Wave 5 upgrade) ────────────────
+
+def _executed(symbol="AAPL", notional=400.0):
+    return {
+        "trade_decisions": {symbol: {"executed": True, "risk_reason": None}},
+        "new_paper_trades": [{"symbol": symbol, "notional_value": notional}],
+    }
+
+
+def test_execute_c1_compliant_trade_passes(skills):
+    from paper_trader.officer_predicates import execute_no_cap_breach
+    # cap = 5% * 10000 = 500; a 400 notional is under cap
+    view = _view("execute", skills["execute"], _executed(notional=400.0),
+                 agent_input={"frozen_equity": 10000.0})
+    assert execute_no_cap_breach({"id": "C1"}, view) == []
+
+
+def test_execute_c1_oversized_trade_flags(skills):
+    from paper_trader.officer_predicates import execute_no_cap_breach
+    # 800 notional > 500 cap -> arithmetic breach
+    view = _view("execute", skills["execute"], _executed(notional=800.0),
+                 agent_input={"frozen_equity": 10000.0})
+    divs = execute_no_cap_breach({"id": "C1"}, view)
+    assert len(divs) == 1
+    over = divs[0].detail["oversized_trades"]
+    assert over[0]["symbol"] == "AAPL" and over[0]["cap"] == pytest.approx(500.0)
+
+
+def test_execute_c1_exact_cap_not_flagged(skills):
+    from paper_trader.officer_predicates import execute_no_cap_breach
+    # exactly at the cap (500) is compliant, not a breach (float tolerance)
+    view = _view("execute", skills["execute"], _executed(notional=500.0),
+                 agent_input={"frozen_equity": 10000.0})
+    assert execute_no_cap_breach({"id": "C1"}, view) == []
+
+
+def test_execute_c1_pre_amendment_falls_back(skills):
+    from paper_trader.officer_predicates import execute_no_cap_breach
+    # no frozen_equity (old record): oversized notional is NOT caught by arithmetic;
+    # falls back to symmetry-only (the authorized trade passes symmetry -> clean)
+    view = _view("execute", skills["execute"], _executed(notional=999999.0),
+                 agent_input={})  # pre-amendment
+    assert execute_no_cap_breach({"id": "C1"}, view) == []
+
+
+def test_execute_c1_symmetry_still_catches_unauthorized(skills):
+    from paper_trader.officer_predicates import execute_no_cap_breach
+    # a trade with NO executed decision is an unauthorized execution (symmetry)
+    out = {"trade_decisions": {}, "new_paper_trades": [{"symbol": "AAPL", "notional_value": 1.0}]}
+    view = _view("execute", skills["execute"], out, agent_input={"frozen_equity": 10000.0})
+    divs = execute_no_cap_breach({"id": "C1"}, view)
+    assert divs[0].detail["unauthorized_trades"] == ["AAPL"]
 
 
 # ─── Execute C2: symmetric logging ───────────────────────────────────────
