@@ -34,7 +34,47 @@
   loudly — never a silent bend.
 - Gate reports are brief: what changed, test results, deviations. No architecture prose.
 
-## Four-store map
+## Store map (six files, six connection paths, never co-mingled)
 checkpointer.sqlite (crash recovery) · paper_trader.sqlite (domain history) ·
-Store A (execution trace, immutable) · Store B (ledger, append-only).
-Four stores, four connection paths, never co-mingled.
+Store A (execution trace, immutable) · Store B (correction ledger, append-only) ·
+skills.sqlite (skill-version registry + currency pointer) · proposals.sqlite
+(proposal lifecycle — the one legitimately-mutable governance record).
+Paths are injected via `paper_trader/config.py`; the framework never hardcodes
+where instance data lives.
+
+---
+
+## BUILD STATUS (updated after Wave 6)
+
+**Waves 1–6 (§9.2) are DONE and merged to `main`. 357 tests pass.** The governance
+half is built and proven end-to-end by the DT-12.5 acceptance walk
+(`tests/test_dt125_acceptance.py`). Per-wave detail lives in
+`docs/gate_reports/WAVE*_COMPLETION_REPORT.md` (WAVE6 is newest — read it first).
+
+**What exists and works:**
+- Framework (`steward/`): five-store substrate; versioned skills + hash-verified
+  loader; observer (deterministic predicate runner over Store A → Store B);
+  proposer (cite-never-assert); gate CLI + atomic slow-loop fork + crash
+  reconciliation; read-only reconstructive replay.
+- Application (`paper_trader/`): five agents (Filter, Research, Predict, Execute,
+  PostMortem) + rules-first supervisor; Store A emission (non-blocking,
+  behavior-neutral); the observer wired as the terminal node.
+
+**What is deliberately minimal / deferred (the post-v1 register):**
+- **Predict is momentum-only** — the full method-selector (mean_reversion, ARIMA,
+  LLM selection) is not built.
+- **No live data clients** — protocols + fakes only (no live yfinance/Finnhub/CoinGecko).
+- **IN_WINDOW → verdict** — window `evaluation` stays null (v1 stub).
+- Interior placeholders: fractional-Kelly math, same-sector cap enforcement,
+  baseline-P&L settlement comparison.
+- DT-7.1 frozen-value re-execution / deterministic-verification diagnostic (G5-deferred).
+
+## Continuing the build in a new thread
+To do the next unit of work, invoke the **`steward-wave`** skill (say
+`/steward-wave` or "start the next wave" / "continue the build"). It reads the
+latest gate report + the authority docs, creates a fresh `wave<N>-<slug>` branch
+off main, runs one task at a time with brief gate reports and human pauses, honors
+the hard-stops, keeps tests/lint/mypy green, and writes a completion report. Tell
+it which register item to build. Do NOT start building without it — the discipline
+(read authority first, gated tasks, DC-1, append-only, behavior-neutrality proofs)
+is what has kept every wave clean.
