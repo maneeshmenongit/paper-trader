@@ -30,7 +30,7 @@ from paper_trader.domain import (
 
 class CycleState(BaseModel):
     # ─── identity / timing ───────────────────────────────────────────────
-    cycle_id: str                              # uuid4, generated at cycle start
+    cycle_id: str                              # ULID (DT-4.1), 26-char TEXT; from Clock
     started_at: datetime                       # injected from Clock, NOT datetime.now()
     cycle_kind: Literal["live", "backtest"] = "live"
 
