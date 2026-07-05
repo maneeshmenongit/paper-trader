@@ -31,6 +31,26 @@ class Asset(BaseModel):
     sector: str | None = None
 
 
+class OHLCVBar(BaseModel):
+    """One OHLCV bar (seam payload from MarketDataProvider)."""
+
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class NewsItem(BaseModel):
+    """One news item (seam payload from news providers)."""
+
+    headline: str
+    url: str
+    published_at: datetime
+    source: str | None = None
+
+
 class Position(BaseModel):
     symbol: str
     quantity: float
