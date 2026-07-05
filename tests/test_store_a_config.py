@@ -1,10 +1,16 @@
-"""Store A config-wiring tests (Wave 3 Task 1). Store B stays unwired."""
+"""Store A + Store B config-wiring tests (Wave 3 Task 1 / Wave 4 Task 1)."""
 
 from __future__ import annotations
 
-import paper_trader.config as cfg
-from paper_trader.config import APPLICATION_ID, open_store_a, store_a_path
+from paper_trader.config import (
+    APPLICATION_ID,
+    open_store_a,
+    open_store_b,
+    store_a_path,
+    store_b_path,
+)
 from steward.storage.store_a import StoreA
+from steward.storage.store_b import StoreB
 
 
 def test_store_a_path_from_env(monkeypatch, tmp_path):
@@ -45,11 +51,29 @@ def test_store_a_is_distinct_from_other_stores(tmp_path, monkeypatch):
     assert len(paths) == 2  # distinct
 
 
-def test_store_b_is_not_wired():
-    # No Store B path or opener exists in config this wave (no ledger emission).
-    names = [n.lower() for n in dir(cfg)]
-    assert not any("store_b" in n for n in names)
-    assert not any("ledger" in n for n in names)
+def test_store_b_path_from_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("STORE_B_DB_PATH", str(tmp_path / "store_b.sqlite"))
+    assert store_b_path() == tmp_path / "store_b.sqlite"
+
+
+def test_open_store_b_applies_ddl(tmp_path):
+    store = open_store_b(tmp_path / "store_b.sqlite")
+    assert isinstance(store, StoreB)
+    assert store.path.exists()
+    with store.connection() as conn:
+        tables = {
+            r["name"]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+    assert "ledger_entries" in tables
+
+
+def test_store_a_and_b_are_distinct(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORE_A_DB_PATH", str(tmp_path / "store_a.sqlite"))
+    monkeypatch.setenv("STORE_B_DB_PATH", str(tmp_path / "store_b.sqlite"))
+    assert store_a_path() != store_b_path()
 
 
 def test_application_id_constant():

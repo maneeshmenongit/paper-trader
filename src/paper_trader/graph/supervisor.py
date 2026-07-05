@@ -44,6 +44,7 @@ class Supervisor:
         skill_pins: dict[str, str] | None = None,
         cycle_config: dict[str, Any] | None = None,
         trigger_kind: str = "schedule",
+        observer: Any | None = None,
     ):
         self.agents = {
             "filter": filter_agent,
@@ -67,6 +68,10 @@ class Supervisor:
         self.skill_pins = skill_pins or {}
         self.cycle_config = cycle_config or {}
         self.trigger_kind = trigger_kind
+        # Correction officer — observer half (Wave 4). Runs as the TERMINAL node,
+        # post-hoc + read-only on the trade path. Non-blocking (its own try/except
+        # inside observe_cycle). When None, the cycle is byte-identical.
+        self.observer = observer
 
     def _emitting(self) -> bool:
         return self.emitter is not None and self.emitter.enabled and self.clock is not None
@@ -115,5 +120,13 @@ class Supervisor:
                 orchestrator_rationale=None,
                 status=cycle_status(state),
             )
+
+        # TERMINAL node (I-1): the observer runs post-hoc over THIS cycle's Store A
+        # records and writes Store B. It is read-only on the trade path and
+        # non-blocking, so trade_decisions/paper_trades are unaffected. Requires
+        # emission (Store A must be populated first) — a broken camera never breaks
+        # what it films.
+        if self.observer is not None and self._emitting():
+            self.observer.observe_cycle(state.cycle_id)
 
         return state
