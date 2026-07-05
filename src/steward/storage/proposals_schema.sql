@@ -41,7 +41,13 @@ CREATE TABLE IF NOT EXISTS proposals (
     new_version_id    TEXT,
 
     -- Three-signal verdict at window close (null until then; v1 STUBBED).
-    evaluation        TEXT
+    evaluation        TEXT,
+
+    -- Cooling-off ritual (DT-12.1 / §8.4): first-viewed session + timestamp,
+    -- stamped by `gate show`. A high-complexity approve is blocked unless the
+    -- approving session differs from the first-viewed session.
+    first_viewed_at      TEXT,
+    first_viewed_session TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_proposals_target_status

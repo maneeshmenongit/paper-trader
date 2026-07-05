@@ -42,25 +42,51 @@ def _div(inv: InvocationView, constraint: dict[str, Any], detail: dict[str, Any]
 # ─── Execute ─────────────────────────────────────────────────────────────
 
 def execute_no_cap_breach(constraint: dict[str, Any], inv: InvocationView) -> list[Divergence]:
-    """C1: no executed trade breaches the pinned confidence/magnitude floors."""
+    """C1: no executed trade breaches the pinned caps.
+
+    Full arithmetic when the frozen equity is present (Wave 5): each executed
+    trade's notional must be <= max_position_pct * frozen_equity. Pre-amendment
+    records lack frozen_equity (Store A is append-only — old rows cannot gain the
+    field), so those fall back to the symmetry-only check (a recorded trade with
+    no matching executed decision is an unauthorized execution).
+    """
     params = ExecuteParams(inv.skill)
     decisions = (inv.agent_output or {}).get("trade_decisions", {}) or {}
     trades = (inv.agent_output or {}).get("new_paper_trades", []) or []
     executed_symbols = {
         s for s, d in decisions.items() if isinstance(d, dict) and d.get("executed")
     }
-    breaches = []
-    for trade in trades:
-        # A recorded paper_trade must correspond to an executed decision. The
-        # absolute cap check (notional <= max_position_pct * equity) needs cycle
-        # equity, which the frozen write-set snapshot does not carry; so the
-        # conduct check here is structural symmetry — a trade with no matching
-        # executed decision is itself a breach (unauthorized execution).
-        if trade.get("symbol") not in executed_symbols:
-            breaches.append(trade.get("symbol"))
-    if breaches:
-        return [_div(inv, constraint, {"unauthorized_trades": breaches,
-                                       "min_confidence": params.min_confidence})]
+
+    # symmetry check (always): unauthorized executions.
+    unauthorized = [
+        t.get("symbol") for t in trades if t.get("symbol") not in executed_symbols
+    ]
+
+    # full arithmetic (only when the frozen equity is present).
+    equity = (inv.agent_input or {}).get("frozen_equity")
+    oversized = []
+    if isinstance(equity, (int, float)) and equity > 0:
+        cap = params.max_position_pct * float(equity)
+        # small float tolerance so an exact-cap sizing is not a false positive.
+        tol = 1e-6 * max(cap, 1.0)
+        for trade in trades:
+            notional = float(trade.get("notional_value", 0.0))
+            if notional > cap + tol:
+                oversized.append({
+                    "symbol": trade.get("symbol"),
+                    "notional_value": notional,
+                    "cap": cap,
+                })
+
+    if unauthorized or oversized:
+        detail: dict[str, Any] = {"min_confidence": params.min_confidence}
+        if unauthorized:
+            detail["unauthorized_trades"] = unauthorized
+        if oversized:
+            detail["oversized_trades"] = oversized
+        else:
+            detail["cap_check"] = "arithmetic" if equity else "symmetry_fallback"
+        return [_div(inv, constraint, detail)]
     return []
 
 

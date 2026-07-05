@@ -109,3 +109,88 @@ class ProposalStore:
                 "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def list_by_status(self, status: str) -> list[dict[str, Any]]:
+        """All proposals in a given status (startup reconciliation queries APPROVED)."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM proposals WHERE status = ? ORDER BY proposal_id",
+                (status,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_open(self) -> list[dict[str, Any]]:
+        """Proposals in PROPOSED/APPROVED/IN_WINDOW (for `gate list`)."""
+        placeholders = ",".join("?" for _ in OPEN_STATUSES)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM proposals WHERE status IN ({placeholders}) "
+                f"ORDER BY created_at, proposal_id",
+                OPEN_STATUSES,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_status_with_decision(
+        self,
+        proposal_id: str,
+        *,
+        status: str,
+        decided_at: str | None,
+        decided_by: str | None,
+        decision_note: str | None,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        """Record a gate decision (status + note + decided_by/at). Used by reject
+        (Task 4) and — inside the fork transaction — by approve (Task 5). When a
+        connection is supplied the write joins that transaction (atomicity)."""
+        sql = """
+            UPDATE proposals
+            SET status = ?, decided_at = ?, decided_by = ?, decision_note = ?
+            WHERE proposal_id = ?
+        """
+        args = (status, decided_at, decided_by, decision_note, proposal_id)
+        if conn is not None:
+            conn.execute(sql, args)
+        else:
+            with self.connection() as own:
+                own.execute(sql, args)
+
+    def set_in_window(
+        self,
+        proposal_id: str,
+        *,
+        new_version_id: str,
+        window_opened_at: str,
+        window_closes_at: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        """Move an APPROVED proposal to IN_WINDOW, stamping the window + the new
+        version id. evaluation stays NULL (v1 stub). Optionally in a transaction."""
+        sql = """
+            UPDATE proposals
+            SET status = 'IN_WINDOW', new_version_id = ?,
+                window_opened_at = ?, window_closes_at = ?
+            WHERE proposal_id = ?
+        """
+        args = (new_version_id, window_opened_at, window_closes_at, proposal_id)
+        if conn is not None:
+            conn.execute(sql, args)
+        else:
+            with self.connection() as own:
+                own.execute(sql, args)
+
+    def record_first_view(
+        self, proposal_id: str, *, session: str, viewed_at: str
+    ) -> None:
+        """Stamp first-viewed session+timestamp ONCE (idempotent — a later view
+        never overwrites the first). Backs the cooling-off ritual."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE proposals
+                SET first_viewed_at = COALESCE(first_viewed_at, ?),
+                    first_viewed_session = COALESCE(first_viewed_session, ?)
+                WHERE proposal_id = ?
+                """,
+                (viewed_at, session, proposal_id),
+            )

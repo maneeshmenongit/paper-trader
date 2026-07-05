@@ -123,6 +123,81 @@ class SkillVersionRegistry:
                 ),
             )
 
+    # ─── atomic fork (DT-12.1, Wave 5) ───────────────────────────────────
+
+    def fork_version(
+        self,
+        *,
+        base_version_id: str,
+        new_version_id: str,
+        content: str,
+        created_by_proposal_id: str,
+        grounding_refs: str | None,
+        created_at: str,
+    ) -> None:
+        """Slow-loop fork, ATOMIC in ONE single-file transaction: insert the new
+        version row AND flip the currency pointer to it — all-or-nothing.
+
+        Never leaves a pointer referencing a nonexistent version: both writes are
+        in the same connection/transaction (the context manager commits once at
+        the end, rolls back on any exception).
+
+        origin is fixed to 'slow-loop-fork' (the only origin this path produces).
+        The new ordinal is parent_ordinal + 1. Raises if the base is absent or the
+        new_version_id already exists (the append-only PK also enforces the latter).
+        """
+        content_hash = compute_content_hash(content)
+        with self.connection() as conn:
+            base = conn.execute(
+                "SELECT application_id, agent_name, skill_name, version_ordinal "
+                "FROM skill_versions WHERE version_id = ?",
+                (base_version_id,),
+            ).fetchone()
+            if base is None:
+                raise ValueError(f"base version {base_version_id!r} does not exist")
+
+            new_ordinal = int(base["version_ordinal"]) + 1
+
+            # (1) new version row — parent + proposal FK, origin slow-loop-fork.
+            conn.execute(
+                """
+                INSERT INTO skill_versions (
+                    version_id, application_id, agent_name, skill_name,
+                    version_ordinal, content_hash, content,
+                    parent_version_id, created_by_proposal_id,
+                    origin, grounding_refs,
+                    validation_status, validation_updated_at,
+                    validation_evidence_refs, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'slow-loop-fork', ?,
+                          'UNVALIDATED', ?, NULL, ?)
+                """,
+                (
+                    new_version_id, base["application_id"], base["agent_name"],
+                    base["skill_name"], new_ordinal, content_hash, content,
+                    base_version_id, created_by_proposal_id, grounding_refs,
+                    created_at, created_at,
+                ),
+            )
+
+            # (2) currency-pointer flip — SAME transaction, so it can never point
+            # at a version that did not get inserted.
+            conn.execute(
+                """
+                INSERT INTO skill_currency (
+                    application_id, agent_name, skill_name,
+                    current_version_id, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (application_id, agent_name, skill_name)
+                DO UPDATE SET current_version_id = excluded.current_version_id,
+                              updated_at = excluded.updated_at
+                """,
+                (
+                    base["application_id"], base["agent_name"], base["skill_name"],
+                    new_version_id, created_at,
+                ),
+            )
+            # commit happens once, on clean exit from the context manager.
+
     # ─── skill_currency: the one mutable cell ────────────────────────────
 
     def set_current_version(
@@ -156,6 +231,17 @@ class SkillVersionRegistry:
                     updated_at,
                 ),
             )
+
+    def version_by_proposal(self, proposal_id: str) -> dict[str, str] | None:
+        """Return the version row created by a proposal (crash reconciliation:
+        detects whether a fork committed before a crash), or None."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT version_id, application_id, agent_name, skill_name "
+                "FROM skill_versions WHERE created_by_proposal_id = ?",
+                (proposal_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     def get_current_version_id(
         self,
