@@ -104,6 +104,80 @@ class Repository:
             ).fetchone()
         return int(row["c"])
 
+    # ─── settlement (Live-Operation T4) ──────────────────────────────────
+    # App-db only. The paper_trades table is a DOMAIN table (mutable), NOT a
+    # governance store — settling a trade is an ordinary domain UPDATE, never a
+    # Store A/B write.
+
+    def open_trades_due(self, now_iso: str) -> list[dict[str, object]]:
+        """Open (unexited) paper trades whose horizon has arrived (<= now).
+
+        Returns plain dicts (id, symbol, entry_price, quantity, prediction_id,
+        expected_exit_time) so the settlement module stays free of DB row types.
+        """
+        with self.db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, prediction_id, symbol, entry_price, quantity,
+                       notional_value, entry_time, expected_exit_time
+                FROM paper_trades
+                WHERE exited = 0 AND expected_exit_time <= ?
+                ORDER BY id
+                """,
+                (now_iso,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def baseline_magnitude_for_prediction(self, prediction_id: int) -> float | None:
+        """The momentum baseline shadow's magnitude for a traded prediction.
+
+        The baseline is a separate ``is_baseline=1`` predictions row for the same
+        symbol/cycle. Returns its ``magnitude_pct`` (signed by direction) so
+        settlement can score the baseline P&L shadow, or None if absent.
+        """
+        with self.db.connection() as conn:
+            row = conn.execute(
+                "SELECT symbol, cycle_id FROM predictions WHERE id = ?",
+                (prediction_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            baseline = conn.execute(
+                """
+                SELECT direction, magnitude_pct FROM predictions
+                WHERE symbol = ? AND cycle_id = ? AND is_baseline = 1
+                ORDER BY id LIMIT 1
+                """,
+                (row["symbol"], row["cycle_id"]),
+            ).fetchone()
+        if baseline is None:
+            return None
+        signed = float(baseline["magnitude_pct"])
+        return -signed if baseline["direction"] == "DOWN" else signed
+
+    def predicted_magnitude_for_prediction(self, prediction_id: int) -> float | None:
+        """The traded View's own predicted magnitude_pct (for magnitude_error)."""
+        with self.db.connection() as conn:
+            row = conn.execute(
+                "SELECT magnitude_pct FROM predictions WHERE id = ?",
+                (prediction_id,),
+            ).fetchone()
+        return float(row["magnitude_pct"]) if row is not None else None
+
+    def mark_trade_settled(
+        self, *, trade_id: int, exit_price: float, exit_time_iso: str
+    ) -> None:
+        """Close one paper trade at the given price/time (domain UPDATE)."""
+        with self.db.connection() as conn:
+            conn.execute(
+                """
+                UPDATE paper_trades
+                SET exited = 1, exit_price = ?, exit_time = ?
+                WHERE id = ? AND exited = 0
+                """,
+                (exit_price, exit_time_iso, trade_id),
+            )
+
     # ─── post-mortems ────────────────────────────────────────────────────
 
     def insert_post_mortem(self, *, pm: PostMortem, created_at: str) -> None:
