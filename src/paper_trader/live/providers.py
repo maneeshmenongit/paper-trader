@@ -68,22 +68,23 @@ def build_data_providers(config: LiveConfig) -> DataProviders:
 
 
 def _fake_providers() -> DataProviders:
-    # Imported lazily so production wiring never depends on the test tree; the
-    # fakes are the sanctioned offline defaults (Wave 2.5).
-    from tests.fixtures.fakes import (
-        FakeCompanyNews,
-        FakeCryptoData,
-        FakeMarketData,
-        FakeTradingClient,
-        FrozenClock,
+    # In-package offline seams (paper_trader.data.offline) — the sanctioned
+    # offline default. Application-owned, so a live-mode-off run assembles without
+    # importing the test tree (which is absent outside pytest).
+    from paper_trader.data.offline import (
+        OfflineClock,
+        OfflineCompanyNews,
+        OfflineCryptoData,
+        OfflineMarketData,
+        OfflineTradingClient,
     )
 
     return DataProviders(
-        clock=FrozenClock(),
-        market_data=FakeMarketData(),
-        company_news=FakeCompanyNews(),
-        crypto_data=FakeCryptoData(),
-        trading_client=FakeTradingClient(),
+        clock=OfflineClock(),
+        market_data=OfflineMarketData(),
+        company_news=OfflineCompanyNews(),
+        crypto_data=OfflineCryptoData(),
+        trading_client=OfflineTradingClient(),
     )
 
 

@@ -114,12 +114,12 @@ def test_shipped_watchlist_file_loads():
 
 # ─── provider swap ─────────────────────────────────────────────────────────
 
-def test_non_live_mode_returns_fakes():
-    from tests.fixtures.fakes import FakeMarketData, FrozenClock
+def test_non_live_mode_returns_offline_defaults():
+    from paper_trader.data.offline import OfflineClock, OfflineMarketData
 
     providers = build_data_providers(load_live_config(env={}))
-    assert isinstance(providers.clock, FrozenClock)
-    assert isinstance(providers.market_data, FakeMarketData)
+    assert isinstance(providers.clock, OfflineClock)
+    assert isinstance(providers.market_data, OfflineMarketData)
     # still protocol-conformant
     assert isinstance(providers.market_data, MarketDataProvider)
     assert isinstance(providers.company_news, CompanyNewsProvider)
