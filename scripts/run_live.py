@@ -102,7 +102,7 @@ async def _main() -> None:
         log.info("seeded @v1 skills: %s", seeded)
     store_a = appcfg.open_store_a(store_a_path)
     store_b = appcfg.open_store_b(store_b_path)
-    repo = Repository(Database(appcfg.store_a_path().parent / "paper_trader.sqlite"))
+    repo = Repository(Database(appcfg.paper_trader_db_path()))
 
     watchlist = load_watchlist(cfg.watchlist_path)
     log.info("watchlist: %s", [a.symbol for a in watchlist])

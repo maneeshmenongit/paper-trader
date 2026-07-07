@@ -7,13 +7,25 @@ governance-trace emission (Store A/B) is a later wave and is NOT done here.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from paper_trader.domain import Asset, View
 from paper_trader.graph.state import CycleState
 from paper_trader.persistence.repository import Repository
 
 
-def persist_cycle(repo: Repository, state: CycleState) -> None:
-    """Persist predictions, trade decisions, and paper trades from a cycle."""
+def persist_cycle(
+    repo: Repository,
+    state: CycleState,
+    *,
+    settlement_contexts: Mapping[str, object] | None = None,
+) -> None:
+    """Persist predictions, trade decisions, paper trades, and post-mortems.
+
+    ``settlement_contexts`` (from the settlement pass, keyed by prediction_id)
+    supplies each settled post-mortem's app-db ``paper_trade_id`` FK. Post-mortems
+    are app-db rows (domain history); this never touches Store A/B.
+    """
     created_at = (state.ended_at or state.started_at).isoformat()
 
     # symbol -> app-db prediction id, so decisions/trades can FK to it.
@@ -55,6 +67,18 @@ def persist_cycle(repo: Repository, state: CycleState) -> None:
         if pid is None:
             continue
         repo.insert_paper_trade(cycle_id=state.cycle_id, prediction_id=pid, trade=trade)
+
+    # Post-mortems from settlement scoring (T4/T5). Each FKs to the settled
+    # trade's app-db row id, carried in its SettlementContext.
+    contexts = settlement_contexts or {}
+    for pm in state.new_post_mortems:
+        ctx = contexts.get(pm.paper_trade_id)
+        trade_db_id = getattr(ctx, "paper_trade_db_id", None)
+        if trade_db_id is None:
+            continue  # no resolvable trade row → skip rather than write a bad FK
+        repo.insert_post_mortem_for_trade(
+            paper_trade_id=int(trade_db_id), pm=pm, created_at=created_at
+        )
 
 
 def _asset_for(symbol: str, state: CycleState) -> Asset:

@@ -134,7 +134,8 @@ class ScheduledRunner:
         state = await cycle.supervisor.run_cycle(state)
 
         # 3) Persist domain history (app db only), then carry portfolio forward.
-        persist_cycle(self.repo, state)
+        #    Settlement contexts resolve each post-mortem's trade-row FK.
+        persist_cycle(self.repo, state, settlement_contexts=settlement.contexts)
         self._apply_new_trades(state)
         self.portfolio = state.portfolio
 

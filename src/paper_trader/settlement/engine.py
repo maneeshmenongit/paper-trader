@@ -26,11 +26,14 @@ class SettlementContext:
     magnitude_error). ``baseline_magnitude_pct`` is the momentum baseline shadow's
     magnitude for the same symbol/cycle — the selector's independent measuring
     stick. Either may be None when the app-db lacks the row (older trades).
+    ``paper_trade_db_id`` is the settled trade's app-db row id, so PostMortem's
+    post_mortem row can FK to the real paper_trades row.
     """
 
     prediction_id: str
     predicted_magnitude_pct: float | None
     baseline_magnitude_pct: float | None
+    paper_trade_db_id: int | None = None
 
 
 @dataclass
@@ -90,6 +93,7 @@ async def settle_due_trades(
             prediction_id=str(prediction_id),
             predicted_magnitude_pct=repo.predicted_magnitude_for_prediction(prediction_id),
             baseline_magnitude_pct=repo.baseline_magnitude_for_prediction(prediction_id),
+            paper_trade_db_id=trade_id,
         )
 
     return result

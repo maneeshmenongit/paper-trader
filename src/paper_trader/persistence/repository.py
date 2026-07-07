@@ -180,6 +180,33 @@ class Repository:
 
     # ─── post-mortems ────────────────────────────────────────────────────
 
+    def insert_post_mortem_for_trade(
+        self, *, paper_trade_id: int, pm: PostMortem, created_at: str
+    ) -> None:
+        """Persist a settled trade's post-mortem with an EXPLICIT trade-row FK.
+
+        The PostMortem model's ``paper_trade_id`` field carries the prediction
+        symbol (working-memory key), not the app-db paper_trades.id — settlement
+        resolves the real row id (T4/T5), passed here as ``paper_trade_id``.
+        """
+        import json
+
+        with self.db.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO post_mortems
+                  (paper_trade_id, direction_correct, predicted_magnitude_pct,
+                   actual_magnitude_pct, magnitude_error, simulated_pnl, baseline_pnl,
+                   bias_tags, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (paper_trade_id, int(pm.direction_correct),
+                 pm.predicted_magnitude_pct, pm.actual_magnitude_pct, pm.magnitude_error,
+                 pm.simulated_pnl, pm.baseline_pnl,
+                 json.dumps(pm.bias_tags) if pm.bias_tags is not None else None,
+                 created_at),
+            )
+
     def insert_post_mortem(self, *, pm: PostMortem, created_at: str) -> None:
         import json
 

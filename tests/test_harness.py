@@ -190,3 +190,23 @@ async def test_observability_standalone(tmp_path):
     )
     assert obs.replay_path.exists()
     assert obs.all_pins_verified is True
+
+
+async def test_run_summary_grounded_in_records(tmp_path):
+    from paper_trader.harness.summary import summarize_run
+
+    runner = _make_runner(tmp_path)
+    # cycle 1 opens a trade; advance past horizon so cycle 2 settles + scores it.
+    await runner.run(max_cycles=1)
+    runner.clock = FrozenClock(now=NOW + timedelta(hours=25), market_open=True)
+    await runner.run(max_cycles=1)
+
+    summary = summarize_run(app_db_path=tmp_path / "app.sqlite", run_dir=tmp_path / "run")
+    assert summary.trades_executed >= 1
+    assert summary.trades_settled >= 1
+    assert summary.post_mortems >= 1
+    assert "AAPL" in summary.symbols_traded
+    assert summary.replay_cycles >= 2
+    assert summary.all_pins_verified is True
+    # baseline shadow is scored alongside the trade P&L (both present).
+    assert isinstance(summary.baseline_pnl, float)

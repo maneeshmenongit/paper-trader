@@ -18,12 +18,15 @@ from __future__ import annotations
 from paper_trader.harness.assembly import GovernedCycle, build_governed_cycle
 from paper_trader.harness.observability import CycleObservability, write_cycle_artifacts
 from paper_trader.harness.runner import RunResult, ScheduledRunner
+from paper_trader.harness.summary import RunSummary, summarize_run
 
 __all__ = [
     "CycleObservability",
     "GovernedCycle",
     "RunResult",
+    "RunSummary",
     "ScheduledRunner",
     "build_governed_cycle",
+    "summarize_run",
     "write_cycle_artifacts",
 ]
