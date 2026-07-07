@@ -53,6 +53,24 @@ def persist_cycle(
             created_at=created_at,
         )
 
+    # Momentum baseline SHADOW predictions (is_baseline=1). Persisted so
+    # settlement can score the baseline P&L stick from the app db (T4). They are
+    # measuring sticks, never traded (Execute skips is_baseline Views).
+    for symbol, baseline in state.baseline_predictions.items():
+        if not isinstance(baseline, View):
+            continue
+        repo.upsert_asset(_asset_for(symbol, state))
+        b_close = baseline.method_inputs_summary.get("last_close", 0.0)
+        b_entry = float(b_close) if isinstance(b_close, (int, float)) else 0.0
+        repo.insert_prediction(
+            cycle_id=state.cycle_id, symbol=symbol, entry_price=b_entry,
+            method_selected=baseline.method_selected, selection_mode=baseline.selection_mode,
+            selection_rationale=baseline.selection_rationale, direction=baseline.direction,
+            confidence=baseline.confidence, magnitude_pct=baseline.magnitude_pct,
+            time_horizon_hours=baseline.horizon, calibration_version=state.calibration_version,
+            is_baseline=True, created_at=created_at,
+        )
+
     for symbol, decision in state.trade_decisions.items():
         pid = prediction_ids.get(symbol)
         if pid is None:
