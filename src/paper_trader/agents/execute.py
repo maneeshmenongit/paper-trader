@@ -19,17 +19,29 @@ from typing import Any
 from paper_trader.agents.skill_params import ExecuteParams
 from paper_trader.domain import PaperTrade, TradeDecision, View
 from paper_trader.graph.state import CycleState
+from paper_trader.settlement.engine import horizon_exit_time
 
 
 class ExecuteAgent:
     name = "execute"
     writes = ["trade_decisions", "new_paper_trades", "portfolio"]
 
-    def __init__(self, skill: Any, *, clock: Any, trading_client: Any):
+    def __init__(
+        self,
+        skill: Any,
+        *,
+        clock: Any,
+        trading_client: Any,
+        horizon_hours: int = 24,
+    ):
         self.skill = skill
         self.clock = clock
         self.trading_client = trading_client
         self.params = ExecuteParams(skill)  # all risk values from the skill
+        # Settlement horizon (CYCLE_TIME_HORIZON_HOURS), injected as config — the
+        # v1 stub set expected_exit_time = now (never settled). This is a recorded
+        # exit deadline, NOT a trade-decision input: it does not gate any trade.
+        self.horizon_hours = horizon_hours
         # Portfolio equity in effect at Execute time — recorded for the frozen
         # trace (Wave 5 Task 1). Inert: it does not affect any trade decision.
         self._frozen_equity: float | None = None
@@ -115,6 +127,7 @@ class ExecuteAgent:
             view.symbol, notional / entry_price, entry_price
         )
         quantity = notional / fill
+        entry_time = self.clock.now()
         return PaperTrade(
             prediction_id=view.symbol,
             symbol=view.symbol,
@@ -122,8 +135,10 @@ class ExecuteAgent:
             entry_price=fill,
             quantity=quantity,
             notional_value=notional,
-            entry_time=self.clock.now(),
-            expected_exit_time=self.clock.now(),
+            entry_time=entry_time,
+            # Horizon-based exit deadline so settlement can close the position at
+            # or past this time (T4). Uses the injected config horizon.
+            expected_exit_time=horizon_exit_time(entry_time, self.horizon_hours),
         )
 
     # ─── helpers ─────────────────────────────────────────────────────────
@@ -145,7 +160,14 @@ class ExecuteAgent:
 
     def _entry_price(self, view: View, state: CycleState) -> float:
         summary = view.method_inputs_summary or {}
+        # Predict records the real momentum entry price as ``last_close`` (the
+        # latest bar's close). Accept an explicit ``entry_price`` if a future
+        # method sets one, else the real ``last_close``; the 100.0 constant is a
+        # last-resort fallback for a View that carries neither (never in v1 live).
         price = summary.get("entry_price")
         if isinstance(price, (int, float)):
             return float(price)
+        last_close = summary.get("last_close")
+        if isinstance(last_close, (int, float)):
+            return float(last_close)
         return 100.0

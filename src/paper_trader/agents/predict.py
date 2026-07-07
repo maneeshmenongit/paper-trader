@@ -116,7 +116,7 @@ class PredictAgent:
             symbol=symbol, method_selected="momentum", selection_mode="rule",
             direction=direction, magnitude_pct=magnitude, horizon=24,
             confidence=confidence, is_baseline=True,  # C4: tagged, never traded
-            method_inputs_summary={"n_closes": len(closes)},
+            method_inputs_summary={"n_closes": len(closes), "last_close": closes[-1]},
         )
 
 

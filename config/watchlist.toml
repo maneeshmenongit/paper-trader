@@ -1,0 +1,49 @@
+# Live-operation watchlist (Live-Operation T3).
+#
+# What Filter validates each cycle. Determines which data clients matter and
+# whether the ratified R2 liquidity floors bind (filter@v1: $10M avg daily dollar
+# volume for stocks, $50M 24h volume for crypto). This starter list is all
+# large-cap / major-pair, so R2 is effectively DORMANT here — an intentional,
+# authority-sanctioned choice (§3 T3) for a first live run: we are establishing
+# the momentum baseline, not stress-testing the liquidity gate.
+#
+# Edit freely — it is plain config, never frozen as a secret. Each cycle freezes
+# the in-effect symbol snapshot into the trace header (graph/freeze.py).
+
+[[asset]]
+symbol = "AAPL"
+kind = "stock"
+sector = "Technology"
+
+[[asset]]
+symbol = "MSFT"
+kind = "stock"
+sector = "Technology"
+
+[[asset]]
+symbol = "GOOGL"
+kind = "stock"
+sector = "Communication Services"
+
+[[asset]]
+symbol = "AMZN"
+kind = "stock"
+sector = "Consumer Discretionary"
+
+[[asset]]
+symbol = "NVDA"
+kind = "stock"
+sector = "Technology"
+
+[[asset]]
+symbol = "JPM"
+kind = "stock"
+sector = "Financials"
+
+[[asset]]
+symbol = "BTC"
+kind = "crypto"
+
+[[asset]]
+symbol = "ETH"
+kind = "crypto"

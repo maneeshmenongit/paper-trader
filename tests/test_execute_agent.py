@@ -149,3 +149,17 @@ async def test_idempotent_no_double_write(execute_skill):
 def test_no_llm_dependency(execute_skill):
     agent = _agent(execute_skill)
     assert not any("llm" in a.lower() or "router" in a.lower() for a in vars(agent))
+
+
+# ─── entry price from real momentum close (T6 regression) ────────────────
+
+async def test_entry_price_uses_last_close_when_no_explicit_entry_price(execute_skill):
+    # Predict records the real momentum price as last_close (not entry_price).
+    # The live run showed every trade filling at the 100.0 fallback because
+    # Execute read the wrong key; it must fall back to last_close.
+    agent = _agent(execute_skill)
+    view = _view()
+    view.method_inputs_summary = {"n_closes": 30, "last_close": 312.66}  # real close
+    state = await agent.run(_state({"AAPL": view}, PaperPortfolio(cash_balance=100_000.0)))
+    trade = state.new_paper_trades[0]
+    assert trade.entry_price == pytest.approx(312.66)  # real price, not 100.0

@@ -24,6 +24,9 @@ from steward.storage.store_a import StoreA
 from steward.storage.store_b import StoreB
 
 # Env var naming mirrors the existing PAPER_TRADER_DB_PATH / CHECKPOINTER_DB_PATH.
+PAPER_TRADER_DB_PATH_ENV = "PAPER_TRADER_DB_PATH"
+DEFAULT_PAPER_TRADER_DB_PATH = "./data/paper_trader.sqlite"
+
 SKILL_REGISTRY_PATH_ENV = "SKILL_REGISTRY_DB_PATH"
 DEFAULT_SKILL_REGISTRY_PATH = "./data/skills.sqlite"
 
@@ -38,6 +41,15 @@ DEFAULT_PROPOSALS_PATH = "./data/proposals.sqlite"
 
 # The DC-1 application/instance identifier stamped on every governance record.
 APPLICATION_ID = "paper-trader"
+
+
+def paper_trader_db_path() -> Path:
+    """Resolve the app-db (domain history) file path from env (with a default).
+
+    The app db is a DISTINCT file from Store A/B, the skill registry, proposals,
+    and the checkpointer — five+ stores, five+ paths, never co-mingled.
+    """
+    return Path(os.environ.get(PAPER_TRADER_DB_PATH_ENV, DEFAULT_PAPER_TRADER_DB_PATH))
 
 
 def skill_registry_path() -> Path:

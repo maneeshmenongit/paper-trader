@@ -129,3 +129,29 @@ def test_no_store_b_dependency(pm_skill):
     assert "StoreB" not in src and "ledger" not in src.lower()
     # writes declaration is app-db state only, never a governance store
     assert set(agent.writes) == {"new_post_mortems", "portfolio"}
+
+
+# ─── bias-tag parsing robustness (T6 regression: 8B model rambled) ───────
+
+async def test_bias_tags_reject_essay_output(pm_skill):
+    # The first live run stored Ollama essays ("It seems like you're referring
+    # to tag biases in ML...") as bias_tags. Essay-length fragments must be dropped.
+    essay = ("It seems like you're referring to the concept of tag biases in "
+             "machine learning, which can occur when there's an imbalance")
+    agent = _agent(pm_skill, router=FakeLLMRouter(responses={"bias_tagging": essay}))
+    state = await agent.run(_state([_trade()]))
+    # No fragment is <=3 words, so nothing survives -> null (C3), never an essay.
+    assert state.new_post_mortems[0].bias_tags is None
+
+
+async def test_bias_tags_none_response_yields_null(pm_skill):
+    agent = _agent(pm_skill, router=FakeLLMRouter(responses={"bias_tagging": "NONE"}))
+    state = await agent.run(_state([_trade()]))
+    assert state.new_post_mortems[0].bias_tags is None
+
+
+async def test_bias_tags_parse_terse_list(pm_skill):
+    agent = _agent(pm_skill, router=FakeLLMRouter(
+        responses={"bias_tagging": "overconfidence, recency, anchoring"}))
+    state = await agent.run(_state([_trade()]))
+    assert state.new_post_mortems[0].bias_tags == ["overconfidence", "recency", "anchoring"]
