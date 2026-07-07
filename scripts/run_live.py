@@ -43,7 +43,22 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--token-budget", type=int, default=15000)
     p.add_argument("--starting-cash", type=float, default=100_000.0)
     p.add_argument("--run-dir", type=Path, default=None)
+    p.add_argument(
+        "--require-ollama", action="store_true",
+        help="Fail fast if the Ollama server is unreachable (open-source primary).",
+    )
     return p.parse_args()
+
+
+def _ollama_reachable(endpoint: str, timeout: float = 3.0) -> bool:
+    """Best-effort probe of the Ollama server's /api/tags (no hard dependency)."""
+    import httpx
+
+    try:
+        resp = httpx.get(f"{endpoint.rstrip('/')}/api/tags", timeout=timeout)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 async def _main() -> None:
@@ -54,6 +69,20 @@ async def _main() -> None:
 
     cfg = load_live_config()
     log.info("live config: %s", cfg.redacted())
+
+    # Preflight: report whether the open-source LLM primary is live. The router
+    # falls back to Groq/Gemini transparently, but the operator should SEE which
+    # provider actually served the run (authority: Ollama primary, hosted fallback).
+    if cfg.live_mode and cfg.llm_provider == "ollama":
+        up = _ollama_reachable(cfg.ollama_endpoint)
+        log.info("preflight: ollama %s at %s",
+                 "REACHABLE" if up else "UNREACHABLE (will fall back to Groq/Gemini)",
+                 cfg.ollama_endpoint)
+        if not up and args.require_ollama:
+            raise SystemExit(
+                f"--require-ollama set but Ollama unreachable at {cfg.ollama_endpoint}. "
+                "Start it (`ollama serve`) or drop --require-ollama to use the fallback."
+            )
 
     providers = build_data_providers(cfg)
     clock = providers.clock if cfg.live_mode else LiveClock()

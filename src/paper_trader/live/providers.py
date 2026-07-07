@@ -52,16 +52,23 @@ def build_data_providers(config: LiveConfig) -> DataProviders:
         FinnhubCompanyNews,
         YFinanceMarketData,
     )
-
-    if not config.finnhub_api_key:
-        raise ValueError("live mode requires FINNHUB_API_KEY for company news")
+    from paper_trader.data.offline import OfflineCompanyNews
 
     market_data = YFinanceMarketData()
     crypto_data = CoinGeckoCryptoData()
+    # Company news is OPTIONAL: the momentum path is OHLCV-only, and Research
+    # R1/R2 already degrade a missing news source to an empty bundle (never a
+    # cycle abort). Without a Finnhub key we run live prices with empty news
+    # rather than blocking the run — yfinance (no key) is the authority's start.
+    company_news = (
+        FinnhubCompanyNews(api_key=config.finnhub_api_key)
+        if config.finnhub_api_key
+        else OfflineCompanyNews()
+    )
     return DataProviders(
         clock=LiveClock(),
         market_data=market_data,
-        company_news=FinnhubCompanyNews(api_key=config.finnhub_api_key),
+        company_news=company_news,
         crypto_data=crypto_data,
         trading_client=LiveTradingClient(market_data=market_data, crypto_data=crypto_data),
     )

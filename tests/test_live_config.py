@@ -144,10 +144,16 @@ def test_live_mode_constructs_live_clients():
     assert isinstance(providers.trading_client, LiveTradingClient)
 
 
-def test_live_mode_requires_finnhub_key():
-    cfg = load_live_config(env={"PAPER_TRADER_LIVE_MODE": "1"})  # no key
-    with pytest.raises(ValueError, match="FINNHUB_API_KEY"):
-        build_data_providers(cfg)
+def test_live_mode_without_finnhub_key_degrades_to_empty_news():
+    # Finnhub is optional: the momentum path is OHLCV-only and Research degrades a
+    # missing news source to empty. Live mode still assembles (yfinance needs no key).
+    from paper_trader.data.live import YFinanceMarketData
+    from paper_trader.data.offline import OfflineCompanyNews
+
+    cfg = load_live_config(env={"PAPER_TRADER_LIVE_MODE": "1"})  # no finnhub key
+    providers = build_data_providers(cfg)
+    assert isinstance(providers.market_data, YFinanceMarketData)
+    assert isinstance(providers.company_news, OfflineCompanyNews)  # empty news, no abort
 
 
 # ─── LLM router assembly ───────────────────────────────────────────────────
