@@ -99,7 +99,7 @@ class PostMortemAgent:
         # T4: the momentum baseline SHADOW P&L — what the same-symbol baseline
         # forecast would have earned on this position's notional. The selector's
         # independent measuring stick. Absent baseline → parity with the trade.
-        baseline_pnl = self._baseline_pnl(trade, simulated_pnl, ctx)
+        baseline_pnl = self._baseline_pnl(trade, simulated_pnl, actual_move, ctx)
         return PostMortem(
             paper_trade_id=trade.prediction_id,
             direction_correct=direction_correct,
@@ -112,29 +112,43 @@ class PostMortemAgent:
         )
 
     def _baseline_pnl(
-        self, trade: PaperTrade, simulated_pnl: float, ctx: SettlementContext | None
+        self,
+        trade: PaperTrade,
+        simulated_pnl: float,
+        actual_move: float,
+        ctx: SettlementContext | None,
     ) -> float:
-        """Momentum baseline shadow P&L on this trade's notional.
+        """Momentum baseline shadow P&L: what the BASELINE call earned on this
+        position, measured by the REALIZED move (not the predicted magnitude).
 
-        The baseline predicted a move of ``baseline_magnitude_pct`` (signed). Its
-        shadow P&L is that fractional move applied to the position notional — the
-        stick the traded forecast is measured against. Without a baseline row we
-        fall back to parity with the trade (pre-T4 behavior).
+        The baseline forecast a direction; its shadow P&L is the actual price move
+        applied to the notional, signed +1 for a LONG (UP) baseline call and -1
+        for a DOWN call. In momentum-only v1 the baseline direction equals the
+        traded direction, so this equals the trade's own P&L (correct: momentum IS
+        the baseline now). It diverges only once a DIFFERENT method is selected —
+        the thesis phase — which is exactly when the stick must be measured against
+        the outcome, not the forecast. Absent a baseline row → parity with the trade.
+
+        (Earlier T4 code multiplied notional by the PREDICTED magnitude, which
+        inflated the shadow ~15x on the first live settlement — a real-data bug the
+        settlement-elapsed run caught.)
         """
         if ctx is None or ctx.baseline_magnitude_pct is None:
             return simulated_pnl
-        return trade.notional_value * (ctx.baseline_magnitude_pct / 100.0)
+        # sign of the baseline's directional call (magnitude carries the sign).
+        direction_sign = 1.0 if ctx.baseline_magnitude_pct >= 0 else -1.0
+        return trade.notional_value * actual_move * direction_sign
 
     def _apply_bias_tags(self, scored: list[PostMortem], state: CycleState) -> None:
         for start in range(0, len(scored), BIAS_BATCH_SIZE):
             batch = scored[start : start + BIAS_BATCH_SIZE]
             try:
                 text, tokens = self.llm_router.call(
-                    "bias_tagging", "tag biases", str([pm.paper_trade_id for pm in batch])
+                    "bias_tagging", _BIAS_SYSTEM_PROMPT, _bias_user_prompt(batch)
                 )
                 state.llm_calls_made += 1
                 state.llm_tokens_used += tokens
-                tags = [t.strip() for t in text.split(",") if t.strip()]
+                tags = _parse_bias_tags(text)
                 # C3: assign only what the model returned; never invent.
                 for pm in batch:
                     pm.bias_tags = tags or None
@@ -142,3 +156,40 @@ class PostMortemAgent:
                 # C3: a failed tagging call yields null (compliant).
                 for pm in batch:
                     pm.bias_tags = None
+
+
+# Small local models (Llama 3.1 8B) ramble without a strict instruction; the
+# first live run stored essays as "bias tags". Constrain the task and the format.
+_BIAS_SYSTEM_PROMPT = (
+    "You label cognitive biases in trading outcomes. Reply with ONLY a short "
+    "comma-separated list of 0-3 lowercase bias labels (e.g. overconfidence, "
+    "recency, anchoring). No sentences, no explanation. If none apply, reply NONE."
+)
+# A tag is a short label, not prose — reject anything that looks like an essay.
+_MAX_TAG_WORDS = 3
+_MAX_TAGS = 3
+
+
+def _bias_user_prompt(batch: list[PostMortem]) -> str:
+    lines = [
+        f"trade {pm.paper_trade_id}: "
+        f"{'correct' if pm.direction_correct else 'wrong'} direction, "
+        f"predicted {pm.predicted_magnitude_pct:.2f}% vs actual "
+        f"{pm.actual_magnitude_pct:.2f}%, pnl {pm.simulated_pnl:.2f}"
+        for pm in batch
+    ]
+    return "Outcomes:\n" + "\n".join(lines)
+
+
+def _parse_bias_tags(text: str) -> list[str]:
+    """Parse a terse tag list; drop essay-like or empty output (C3 honesty)."""
+    cleaned = text.strip()
+    if not cleaned or cleaned.upper().startswith("NONE"):
+        return []
+    tags: list[str] = []
+    for raw in cleaned.split(","):
+        tag = raw.strip().strip(".").lower()
+        # A real tag is 1-3 words; anything longer is model rambling, not a label.
+        if tag and len(tag.split()) <= _MAX_TAG_WORDS:
+            tags.append(tag)
+    return tags[:_MAX_TAGS]

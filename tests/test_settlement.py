@@ -176,10 +176,41 @@ async def test_postmortem_scores_baseline_shadow(tmp_path):
     out = await agent.run(state)
     pm = out.new_post_mortems[0]
     assert pm.simulated_pnl == pytest.approx(100.0)   # traded forecast P&L
-    assert pm.baseline_pnl == pytest.approx(10.0)     # 1000 notional * 1.0%
+    # Baseline shadow = REALIZED move on notional, signed by the baseline's UP call:
+    # 1000 * 0.10 * (+1) = 100.0 — equals the trade P&L (momentum IS the baseline
+    # in v1). NOT notional*predicted_magnitude (the real-data bug that inflated it).
+    assert pm.baseline_pnl == pytest.approx(100.0)
     assert pm.predicted_magnitude_pct == pytest.approx(3.0)  # from the View
     assert pm.actual_magnitude_pct == pytest.approx(10.0)    # (110-100)/100
     assert pm.magnitude_error == pytest.approx(7.0)   # |10 - 3|
+
+
+async def test_postmortem_baseline_shadow_uses_realized_move_not_prediction(tmp_path):
+    # Regression: the first live settlement inflated baseline_pnl ~15x because it
+    # used notional*PREDICTED magnitude. The shadow must use the REALIZED move.
+    skill = _skill(tmp_path, "postmortem")
+    # entry 100 → exit 100.5, qty 10 → real move 0.5%, simulated_pnl = 5.0.
+    trade = PaperTrade(
+        prediction_id="X", symbol="X", entry_price=100.0, quantity=10.0,
+        notional_value=1000.0, entry_time=NOW, expected_exit_time=NOW,
+        exited=True, exit_price=100.5, exit_time=NOW,
+    )
+    # baseline PREDICTED a large 5% move, but only 0.5% was realized.
+    ctx = {"X": SettlementContext(prediction_id="X", predicted_magnitude_pct=0.5,
+                                  baseline_magnitude_pct=5.0)}  # UP call, big prediction
+    agent = PostMortemAgent(
+        skill, market_data=FakeMarketData(),
+        llm_router=FakeLLMRouter(responses={"bias_tagging": "x"}),
+        settlement_contexts=ctx,
+    )
+    state = CycleState(cycle_id="c", started_at=NOW,
+                       portfolio=PaperPortfolio(cash_balance=10_000.0),
+                       watchlist=[], calibration_version="identity-v1",
+                       pending_settlements=[trade])
+    out = await agent.run(state)
+    pm = out.new_post_mortems[0]
+    # 1000 * 0.005 * (+1) = 5.0 — the realized move, NOT 1000*0.05=50 (the old bug).
+    assert pm.baseline_pnl == pytest.approx(5.0)
 
 
 async def test_postmortem_uses_settled_exit_price_not_live_quote(tmp_path):
