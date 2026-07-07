@@ -38,18 +38,22 @@ produced real records (see `T6_LIVE_RUN_REPORT.md`).
 
 ## Aggregate tests
 
-**444 passed, 0 failed** (was 357 at the end of Wave 6; **+87**). ruff clean.
+**448 passed, 0 failed** (was 357 at the end of Wave 6; **+91**). ruff clean.
 Every changed file mypy-clean (pre-existing backtest/frozen-client mypy debt in
 untouched files remains, as on `main`). DC-1 boundary green (steward never imports
 paper_trader). Emission/observer neutrality green after every agent-touching change.
 
 ## Real bugs the live run surfaced (fixed + regression-tested)
 
-The live run was the first exposure to real data, and it earned its keep — five
-integration bugs the fakes/fixtures had masked (tz-naive timestamps, daily-bar
-staleness vs R4, test-tree import, 100.0 entry-price fallback, dropped
-post-mortem + baseline persistence). Each is fixed with a regression test. Details
-in `T6_LIVE_RUN_REPORT.md`.
+The live runs were the first exposure to real data, and they earned their keep —
+**eight** integration bugs the fakes/fixtures had masked: tz-naive timestamps,
+daily-bar staleness vs R4, test-tree import, 100.0 entry-price fallback, dropped
+post-mortem + baseline persistence (first run); then baseline-shadow math
+(predicted vs realized magnitude, ~15x inflation), Ollama-essay bias tags, and a
+reporting-query mismatch (settlement-elapsed run). Each is fixed with a regression
+test. The settlement bugs in particular would have silently corrupted the thesis
+verdict had they not surfaced on a cheap momentum run first. Details in
+`T6_LIVE_RUN_REPORT.md`.
 
 ## Discipline held throughout
 
@@ -64,11 +68,19 @@ in `T6_LIVE_RUN_REPORT.md`.
   changes (Execute horizon/entry-price, PostMortem scoring, Predict baseline
   price) are backward-compatible and re-proven by the neutrality suite.
 
+## Settlement proven on real data (the closing gate)
+
+A settlement-elapsed live run (`--horizon-hours 0`) drove the full loop on real
+prices: 5 trades opened, settled at the then-current real quote, and were scored —
+real P&L (incl. a real loss), a correct baseline shadow (parity with the trade in
+momentum-only v1), and the observer filing a real outcome-mismatch to Store B on
+the forecast that missed. This run caught three more real-data bugs (baseline
+shadow math, Ollama-essay bias tags, a reporting query) before they could reach the
+thesis experiment. The `[~]` settle+score checkbox is now `[x]`. Details in
+`T6_LIVE_RUN_REPORT.md`.
+
 ## What remains deferred (do NOT do until opened)
 
-- **A settlement-elapsed live run** — the back-to-back T6 run did not cross a 24h
-  horizon, so no trade settled/scored live (the path is test-proven). A run left
-  running ~24h (or `--horizon-hours` short) demonstrates it.
 - **The LLM-as-method-selector thesis** — full Predict roster (mean_reversion,
   arima) + LLM selection so R4 fires; `IN_WINDOW → verdict`. Separate phase (§6).
 - **Finnhub live news** — optional; unset in this run (momentum is OHLCV-only).
