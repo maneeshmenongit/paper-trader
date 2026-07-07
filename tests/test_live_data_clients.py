@@ -95,6 +95,7 @@ def _yf_client(**over):
     return YFinanceMarketData(
         download=over.get("download", lambda s, p: recorded_ohlcv_frame(s)),
         ticker_info=over.get("ticker_info", lambda s: recorded_ticker_info(s)),
+        interval=over.get("interval", "1h"),
     )
 
 
@@ -121,10 +122,27 @@ async def test_yfinance_ohlcv_parses_multiindex_frame():
     assert bars[0].volume == pytest.approx(1_000_000)
 
 
-async def test_yfinance_ohlcv_slices_to_period_days():
+async def test_yfinance_bar_timestamps_are_utc_aware():
+    # Regression (T6 live run): yfinance daily bars are tz-NAIVE; a naive bar
+    # timestamp raises when Filter R4 subtracts it from the UTC-aware clock.
+    # Every bar timestamp must come back UTC-aware.
+    bars = await _yf_client().get_ohlcv("AAPL", period_days=5)
+    assert all(b.timestamp.tzinfo is not None for b in bars)
+
+
+async def test_yfinance_daily_interval_slices_to_period_days():
+    # With a DAILY interval, keep == period_days (tail(3) of a 10-row frame).
+    client = _yf_client(interval="1d", download=lambda s, p: recorded_ohlcv_frame(s, rows=10))
+    bars = await client.get_ohlcv("AAPL", period_days=3)
+    assert len(bars) == 3
+
+
+async def test_yfinance_defaults_to_intraday_for_freshness():
+    # Default 1h interval keeps a generous bar tail (not just period_days) so the
+    # LATEST bar is minutes-fresh for Filter R4 — the T6 fix for daily-bar staleness.
     client = _yf_client(download=lambda s, p: recorded_ohlcv_frame(s, rows=10))
     bars = await client.get_ohlcv("AAPL", period_days=3)
-    assert len(bars) == 3  # tail(3) of a 10-row frame
+    assert len(bars) == 10  # intraday keep >> 3, so the whole frame is returned
 
 
 async def test_yfinance_ohlcv_empty_frame_degrades_to_empty():

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from paper_trader.data.live.retry import retry_with_backoff
@@ -37,12 +37,26 @@ _PERIOD_FOR_DAYS = [
     (365, "1y"),
 ]
 
+# Intraday intervals need a bounded period (yfinance rejects long periods with an
+# intraday interval). yfinance allows 1h data going back ~730 days; we cap the
+# request to a compact recent window that always covers a momentum lookback.
+_INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "1h", "90m"}
+_INTRADAY_PERIOD_CAP = "1mo"
+
 
 def _period_token(period_days: int) -> str:
     for days, token in _PERIOD_FOR_DAYS:
         if period_days <= days:
             return token
     return "2y"
+
+
+def _resolve_period(period_days: int, interval: str) -> str:
+    """The period string for a fetch. Intraday intervals are period-capped so
+    yfinance accepts them (a daily interval keeps the requested window)."""
+    if interval in _INTRADAY_INTERVALS:
+        return _INTRADAY_PERIOD_CAP
+    return _period_token(period_days)
 
 
 class YFinanceMarketData:
@@ -59,10 +73,15 @@ class YFinanceMarketData:
         *,
         download: Callable[[str, str], Any] | None = None,
         ticker_info: Callable[[str], dict[str, Any]] | None = None,
+        interval: str = "1h",
         max_attempts: int = 3,
     ):
         self._download = download
         self._ticker_info = ticker_info
+        # Intraday bars (default 1h) are minutes-fresh, so Filter R4's ratified
+        # freshness window is satisfied by REAL data without any skill change.
+        # Daily bars (interval="1d") are ~1 day stale and fail a tight R4 window.
+        self._interval = interval
         self._max_attempts = max_attempts
 
     # ─── raw library seams (overridden in tests) ─────────────────────────
@@ -72,7 +91,10 @@ class YFinanceMarketData:
             return self._download(symbol, period)
         import yfinance as yf
 
-        return yf.download(symbol, period=period, auto_adjust=False, progress=False)
+        return yf.download(
+            symbol, period=period, interval=self._interval,
+            auto_adjust=False, progress=False,
+        )
 
     def _ticker_info_raw(self, symbol: str) -> dict[str, Any]:
         if self._ticker_info is not None:
@@ -98,12 +120,16 @@ class YFinanceMarketData:
         return float(price)
 
     async def get_ohlcv(self, symbol: str, period_days: int) -> list[OHLCVBar]:
-        period = _period_token(period_days)
+        period = _resolve_period(period_days, self._interval)
         df = await retry_with_backoff(
             lambda: asyncio.to_thread(self._download_raw, symbol, period),
             max_attempts=self._max_attempts,
         )
-        return _frame_to_bars(df, period_days)
+        # Intraday fetches return many bars per day; the momentum lookback only
+        # needs the most recent bars, and Filter R4 checks the LATEST bar's age.
+        # Keep a generous tail (bar-count, not days) so both are satisfied.
+        keep = period_days if self._interval == "1d" else max(period_days * 8, 48)
+        return _frame_to_bars(df, keep)
 
     async def get_asset_metadata(self, symbol: str) -> Asset:
         info = await retry_with_backoff(
@@ -155,7 +181,14 @@ def _frame_to_bars(df: Any, period_days: int) -> list[OHLCVBar]:
 
 
 def _as_datetime(ts: Any) -> datetime:
-    """Coerce a pandas Timestamp (or datetime) to a plain datetime."""
-    if isinstance(ts, datetime):
-        return ts
-    return cast(datetime, ts.to_pydatetime())
+    """Coerce a pandas Timestamp (or datetime) to a UTC-aware datetime.
+
+    yfinance daily bars are tz-NAIVE; the rest of the app (Clock, domain models,
+    the fakes) is UTC-aware. A naive bar timestamp would raise when Filter R4
+    subtracts it from ``clock.now()`` ("can't subtract tz-naive and tz-aware").
+    Normalize here: attach UTC if naive, convert to UTC if already aware.
+    """
+    dt = ts if isinstance(ts, datetime) else cast(datetime, ts.to_pydatetime())
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
