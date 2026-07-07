@@ -20,12 +20,18 @@ merged. This skill runs a NEW bounded unit of work the same way.
 1. **Read the current state.** Read the latest gate report in
    `docs/gate_reports/` (WAVE6 is newest) and the root `CLAUDE.md` "Build status"
    section. Know what exists and what is deferred.
-2. **Read the build authority for THIS task, from the docs, not memory:**
-   `docs/steward/STEWARD_PAPER_TRADER_RECONCILE_001.md` (the build authority —
-   waves, gates G1–G7, DT-*, DC-1/DC-2, Appendix A skill YAMLs) and
-   `docs/steward/STEWARD_FRAMEWORK_SPEC_001.md` (record shapes). Quote the exact
-   section that governs the task. If the task touches an agent's skill content,
-   author it VERBATIM from Appendix A — never paraphrase.
+2. **Read the build authority for THIS task, from the docs, not memory.**
+   - **The CURRENT phase is LIVE OPERATION.** Its authority doc is
+     `docs_to_claude/application_testing/STEWARD_PAPER_TRADER_LIVE_OPERATION_001.md`
+     — READ IT FIRST for any live-operation task. ⚠ It is under gitignored
+     `docs_to_claude/`, so it is NOT in the repo; if it is missing (a fresh clone,
+     a teammate's machine, CI), STOP and ask the user for it — do not proceed from
+     memory or guess the plan.
+   - Background authority (tracked): `docs/steward/STEWARD_PAPER_TRADER_RECONCILE_001.md`
+     (waves, gates G1–G7, DT-*, DC-1/DC-2, Appendix A skill YAMLs) and
+     `docs/steward/STEWARD_FRAMEWORK_SPEC_001.md` (record shapes).
+   Quote the exact section that governs the task. If the task touches an agent's
+   skill content, author it VERBATIM from Appendix A — never paraphrase.
 3. **Confirm the branch.** Waves are stacked feature branches merged after review.
    Create a NEW branch `wave<N>-<slug>` (or `postv1-<slug>`) off `main`. Never
    work on `main`.
@@ -77,22 +83,39 @@ reports' shape): what was built, test counts, any neutrality/acceptance proof
 result, deviations, and what remains deferred. Then STOP and leave the branch for
 human review + merge.
 
-## The remaining work (post-v1 register — pick per the user's ask)
+## The current phase — LIVE OPERATION (do this next)
 
-These are the deferred items recorded across the completion reports:
+Authority: `docs_to_claude/application_testing/STEWARD_PAPER_TRADER_LIVE_OPERATION_001.md`
+(gitignored — read it in full first; ask the user if absent). Goal: take the
+momentum skeleton LIVE on real market data with a self-hosted open-source LLM and
+accumulate REAL governance records. NOT the LLM-selector thesis (Predict stays
+momentum-only; thesis stays UNVALIDATED). Six dependency-ordered tasks, one per
+prompt, human gate between:
 
-- **Full method-selector Predict** — add mean_reversion + ARIMA methods and the
-  LLM selection path (rules-first, escalate to LLM when >1 method eligible; R4).
-  Currently momentum-only. Authority: Appendix A.1, G6.
-- **Live data clients** — real yfinance / Finnhub / CoinGecko implementations
-  behind the existing `data/interfaces.py` protocols (fakes stay for tests).
-- **IN_WINDOW → verdict** — the three-signal window evaluation (currently
-  `evaluation` stays null). Authority: DT-12.3 (this was a v1 stub — confirm it is
-  un-deferred before building).
-- **Provisional-Predict cleanups** — the real fractional-Kelly interior math,
-  same-sector cap enforcement, baseline-P&L settlement comparison.
-- **DT-7.1 frozen-value re-execution / deterministic-verification diagnostic** —
-  explicitly deferred in G5; confirm a demonstrated need before building.
+- **T1 live data clients** — real yfinance/Finnhub/CoinGecko behind the existing
+  `data/interfaces.py` protocols; agents unchanged; tests on recorded fixtures,
+  never live network in CI; honor the semaphore politeness bounds.
+- **T2 Ollama LLM client** — behind the router seam, config-selectable; route
+  Research + PostMortem bias-tagging through it; Groq/Gemini stay as fallback; do
+  NOT touch Predict; faked Ollama endpoint in tests.
+- **T3 live config + watchlist** — a live-mode flag that swaps fakes → live;
+  confirm the watchlist (determines whether the $10M/$50M R2 floors bind); keep
+  secrets/endpoints OUT of the frozen trace.
+- **T4 settlement + baseline scoring** — close positions at horizon; thread the
+  settling View so PostMortem scores hit/miss + the momentum baseline shadow;
+  app-db only, NEVER Store B.
+- **T5 scheduled run harness** — local runner; trigger_kind='schedule'; settle
+  between cycles; per-cycle logs + replay markdown + observer findings; no VPS.
+- **T6 first live run + observation** — the milestone gate: a bounded live run +
+  a run report (trades executed/settled/scored on real prices; governance records
+  produced; replay clean). No thesis claim.
 
-Confirm with the user WHICH item(s) this wave covers, then execute with the
+## Later, separate phases (only if the user explicitly asks — NOT the live phase)
+
+- Full method-selector Predict (mean_reversion + ARIMA + LLM selection; R4). The
+  actual thesis experiment. Authority: Appendix A.1, G6.
+- IN_WINDOW → three-signal verdict (currently `evaluation` null; DT-12.3 stub).
+- DT-7.1 frozen-value re-execution / deterministic-verification diagnostic (G5-deferred).
+
+Confirm with the user WHICH task/phase this covers, then execute with the
 discipline above.
