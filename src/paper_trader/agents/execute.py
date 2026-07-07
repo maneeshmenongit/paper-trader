@@ -160,7 +160,14 @@ class ExecuteAgent:
 
     def _entry_price(self, view: View, state: CycleState) -> float:
         summary = view.method_inputs_summary or {}
+        # Predict records the real momentum entry price as ``last_close`` (the
+        # latest bar's close). Accept an explicit ``entry_price`` if a future
+        # method sets one, else the real ``last_close``; the 100.0 constant is a
+        # last-resort fallback for a View that carries neither (never in v1 live).
         price = summary.get("entry_price")
         if isinstance(price, (int, float)):
             return float(price)
+        last_close = summary.get("last_close")
+        if isinstance(last_close, (int, float)):
+            return float(last_close)
         return 100.0
