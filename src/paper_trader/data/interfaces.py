@@ -18,7 +18,9 @@ from paper_trader.domain import Asset, NewsItem, OHLCVBar
 class MarketDataProvider(Protocol):
     """Current quote and recent OHLCV for stocks AND crypto. yfinance covers both."""
 
-    async def get_current_quote(self, symbol: str) -> float: ...
+    async def get_current_quote(
+        self, symbol: str, timestamp: datetime | None = None
+    ) -> float: ...
 
     async def get_ohlcv(self, symbol: str, period_days: int) -> list[OHLCVBar]: ...
 

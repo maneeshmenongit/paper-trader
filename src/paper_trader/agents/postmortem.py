@@ -19,6 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from paper_trader.analytics.direction_score import direction_correct as _direction_correct
+from paper_trader.analytics.pnl import (
+    actual_move_fraction,
+    baseline_shadow_pnl,
+    realized_pnl,
+)
 from paper_trader.domain import PaperTrade, PostMortem
 from paper_trader.graph.state import CycleState
 from paper_trader.settlement.engine import SettlementContext
@@ -82,10 +88,11 @@ class PostMortemAgent:
             exit_price = trade.exit_price
         else:
             exit_price = await self.market_data.get_current_quote(trade.symbol)
-        actual_move = (exit_price - trade.entry_price) / trade.entry_price
+        # Real math (analytics/*): the ONE path shared with the Stage-0 backtest.
+        actual_move = actual_move_fraction(trade.entry_price, exit_price)
         # v1 LONG-only: gain if price rose.
-        direction_correct = exit_price >= trade.entry_price
-        simulated_pnl = trade.quantity * (exit_price - trade.entry_price)
+        direction_correct = _direction_correct(trade.entry_price, exit_price)
+        simulated_pnl = realized_pnl(trade.entry_price, exit_price, trade.quantity)
 
         ctx = self.settlement_contexts.get(trade.prediction_id)
         actual_mag = actual_move * 100.0
@@ -137,7 +144,7 @@ class PostMortemAgent:
             return simulated_pnl
         # sign of the baseline's directional call (magnitude carries the sign).
         direction_sign = 1.0 if ctx.baseline_magnitude_pct >= 0 else -1.0
-        return trade.notional_value * actual_move * direction_sign
+        return baseline_shadow_pnl(trade.notional_value, actual_move, direction_sign)
 
     def _apply_bias_tags(self, scored: list[PostMortem], state: CycleState) -> None:
         for start in range(0, len(scored), BIAS_BATCH_SIZE):
