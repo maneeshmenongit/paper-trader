@@ -141,15 +141,34 @@ def select_sample(
     for p in points:
         by_date.setdefault(pd.Timestamp(p.entry_date).normalize(), []).append(p)
     dates = sorted(by_date)
-    per_date = max(1, target // len(dates))
+    n_dates = len(dates)
+
     chosen: set[tuple[str, object]] = set()
-    for d in dates:
-        bucket = by_date[d]
-        rng.shuffle(bucket)
-        for p in bucket[:per_date]:
-            chosen.add(_point_id(p))
-    # Top up (or trim) toward the target from a global shuffle for stability.
-    if len(chosen) < target:
+    if target < n_dates:
+        # Fewer picks than dates: choose ``target`` dates EVENLY across the range
+        # (preserving date spread), one point each. Evenly-strided indices keep the
+        # earliest and latest dates in play so coverage isn't clustered.
+        step = n_dates / target
+        picked_dates = [dates[min(n_dates - 1, int(i * step))] for i in range(target)]
+        for d in picked_dates:
+            bucket = by_date[d]
+            chosen.add(_point_id(rng.choice(bucket)))
+    else:
+        # At least one per date: spread ``per_date`` across every date, then trim.
+        per_date = max(1, target // n_dates)
+        for d in dates:
+            bucket = list(by_date[d])
+            rng.shuffle(bucket)
+            for p in bucket[:per_date]:
+                chosen.add(_point_id(p))
+
+    # Trim down to the target (deterministic) if we overshot.
+    if len(chosen) > target:
+        ordered = sorted(chosen)
+        rng.shuffle(ordered)
+        chosen = set(ordered[:target])
+    # Or top up toward the target from a global shuffle if we fell short.
+    elif len(chosen) < target:
         pool = [p for p in points if _point_id(p) not in chosen]
         rng.shuffle(pool)
         for p in pool:
