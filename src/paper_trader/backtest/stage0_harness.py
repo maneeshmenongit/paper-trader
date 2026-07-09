@@ -162,14 +162,18 @@ def run_stage0(
         ceiling_pnls.append(ceiling_pnl)
         floor_ceiling.append(ceiling_pnl)
 
-        # Oracle-best-method = hindsight pick of whichever ELIGIBLE method's entered
-        # trade earned the most (a perfect method-selector). Not-entered = 0.
-        oracle_pnl = max(
-            (point_method_outcomes[n].pnl for n, fc in forecasts.items() if fc.eligible),
-            default=0.0,
-        )
-        # A perfect selector would never take a losing trade over sitting out.
-        oracle_pnls.append(max(0.0, oracle_pnl))
+        # Oracle-best-method = hindsight pick of whichever ELIGIBLE method turned out
+        # right, and TRADE it (§5: "always picking, in hindsight, whichever method
+        # turned out right"). This is the honest hard bound on a pure method-selector:
+        # it gets perfect method choice but NOT free abstention/timing — a losing
+        # best-of-a-bad-lot point still costs, exactly as a must-trade selector would.
+        # (An LLM selector may emit NoView, but that abstention skill is measured
+        # separately in Stage 1, not gifted to the oracle here — keeping this bound
+        # conservative so headroom is never overstated.)
+        eligible_pnls = [
+            point_method_outcomes[n].pnl for n, fc in forecasts.items() if fc.eligible
+        ]
+        oracle_pnls.append(max(eligible_pnls) if eligible_pnls else 0.0)
 
     # ── §4 sanity assertions (halt on violation) ────────────────────────
     # #1 ceiling is a hard bound — the traded strategy of record is the floor.

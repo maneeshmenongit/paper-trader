@@ -73,6 +73,27 @@ def render_gate_report(rep: Stage0Report) -> str:
             "dead. Stop the phase (weeks saved, like T02–T04)."
         ),
         "",
+        "## 4b. How to read this headroom (honesty notes)",
+        "",
+        "- **Oracle definition (conservative).** Oracle-best-method = per point, pick "
+        "the ELIGIBLE method that turned out right and **trade it** (must-trade — a "
+        "losing best-of-a-bad-lot point still costs). It gets perfect *method choice* "
+        "but NOT free abstention or timing. An earlier draft floored each point at 0 "
+        "(free abstention), inflating the oracle to ~$103k; that conflates selection "
+        "skill with timing skill Stage 1's selector won't have, so it was removed. The "
+        "reported oracle is the smaller, honest bound.",
+        "- **Market regime.** The 2024–2026 window is a rising market (ceiling "
+        f"${rep.ceiling_pnl:,.0f} of available upside). The floor "
+        f"(always-momentum) captured only ${rep.floor_pnl:,.0f} of it — momentum "
+        "barely participates. The headroom is real, but Stage 1 must show the LLM "
+        "captures it as *skill*, not just by riding the tape (that is exactly the "
+        "floor/ceiling band's job).",
+        "- **What GO means precisely.** A *perfect* method-picker clears the floor by "
+        f"{rep.edge_ratio * 100:.1f}% of bankroll over {rep.n_points:,} points. So "
+        "there IS headroom for a selector to fight for — the necessary precondition "
+        "for Stage 1. It does NOT mean the LLM will capture it; that is Stage 1's "
+        "question.",
+        "",
         "## 5. Universe spread (§3 discharge)",
         "",
         f"- Sector spread: {spread}.",
