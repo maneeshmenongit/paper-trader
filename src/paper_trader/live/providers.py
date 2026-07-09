@@ -120,6 +120,52 @@ def build_llm_router(config: LiveConfig, budget: TokenBudget) -> ConfigurableLLM
     return ConfigurableLLMRouter(routes, default=default, budget=budget)
 
 
+def build_tiered_router(
+    config: LiveConfig,
+    budget: TokenBudget,
+    *,
+    reasoning_purposes: frozenset[str] | None = None,
+) -> ConfigurableLLMRouter:
+    """Assemble a router that routes FAST and REASONING purposes to SEPARATE models.
+
+    Fast purposes (classification, summarization, bias_tagging) → the fast chain
+    (``config.llm_provider`` primary → cloud fallback), exactly as ``build_llm_router``.
+    Reasoning purposes (``config.reasoning_provider``, e.g. groq) → a reasoning chain
+    that LEADS with the reasoning model, then degrades to the fast chain so a miss
+    still completes. When ``reasoning_provider`` is empty, reasoning reuses the fast
+    chain (single-tier behavior — a pure superset of the old router).
+
+    This is the framework capability: state the two tiers in config; the router
+    falls out. No call site hand-assembles provider chains.
+    """
+    from paper_trader.llm.model_tiers import REASONING_PURPOSES, build_client, tier_of
+
+    reasoning_set = reasoning_purposes if reasoning_purposes is not None else REASONING_PURPOSES
+
+    fast_primary = _build_open_source_client(config)
+    fast_fallback = _build_hosted_fallback(config)
+    fast_chain = [fast_primary, *fast_fallback]
+
+    fast_purposes: list[LLMPurpose] = ["classification", "summarization", "bias_tagging"]
+    routes: dict[LLMPurpose, list[LLMClient]] = {p: fast_chain for p in fast_purposes}
+
+    reasoning_chain = fast_chain
+    if config.reasoning_provider:
+        reasoning_lead = build_client(
+            config.reasoning_provider, model=config.reasoning_model, config=config
+        )
+        # Lead with the reasoning model; keep the fast chain as degradation.
+        reasoning_chain = [reasoning_lead, *fast_chain]
+    # Map each reasoning purpose (str) into the router. The frozen LLMPurpose Literal
+    # does not enumerate these (e.g. predict_selection); the router accepts any key at
+    # runtime, so we assign via the same dict without editing the Literal.
+    for purpose in reasoning_set:
+        routes[purpose] = reasoning_chain  # type: ignore[index]
+
+    default = fast_chain if fast_fallback else [fast_primary]
+    return ConfigurableLLMRouter(routes, default=default, budget=budget)
+
+
 def _build_open_source_client(config: LiveConfig) -> LLMClient:
     if config.llm_provider == "openrouter":
         from paper_trader.llm.openrouter_client import OpenRouterClient

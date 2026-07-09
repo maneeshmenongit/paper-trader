@@ -59,32 +59,55 @@ def _floor_crosscheck(history: dict[str, pd.DataFrame]) -> tuple[bool, str]:
     return ok, msg
 
 
-def _build_selector(max_calls: int | None) -> LLMSelector | None:
-    """Build an LLMSelector wired to the strongest configured provider, or None."""
+def _build_selection_chain(config, provider: str) -> list:
+    """Build the predict_selection provider chain, leading with ``provider``.
+
+    §4.B wants a strong model first; cost guidance is Groq (free tier) before
+    Gemini before Anthropic. Groq's default (llama-3.3-70b-versatile) is a strong,
+    fast model — the sensible default. Falls back to the others (when keyed) so a
+    provider miss degrades instead of halting.
+    """
+    from paper_trader.llm.gemini_client import GeminiClient
+    from paper_trader.llm.groq_client import GroqClient
+    from paper_trader.llm.ollama_client import OllamaClient
+
+    def make(name: str) -> object | None:
+        if name == "groq":
+            return GroqClient(api_key=config.groq_api_key) if config.groq_api_key else None
+        if name == "gemini":
+            return GeminiClient(api_key=config.gemini_api_key) if config.gemini_api_key else None
+        return OllamaClient(model=config.ollama_model, endpoint=config.ollama_endpoint)
+
+    order = [provider] + [p for p in ("groq", "gemini", "ollama") if p != provider]
+    return [c for c in (make(p) for p in order) if c is not None]
+
+
+def _build_selector(max_calls: int | None, provider: str) -> LLMSelector | None:
+    """Build an LLMSelector routing predict_selection at ``provider`` first."""
     from paper_trader.live.config import load_live_config
     from paper_trader.live.providers import build_llm_router
     from paper_trader.llm.budget import TokenBudget
 
     try:
         config = load_live_config()
-        # A generous budget — the --max-calls cap is the real governor here.
         router = build_llm_router(config, TokenBudget(per_cycle_limit=10_000_000))
+        chain = _build_selection_chain(config, provider)
     except Exception as exc:  # noqa: BLE001 — no provider configured is a clean halt
         print(f"no LLM provider configured: {exc}", file=sys.stderr)
         return None
 
-    # §4.B: point predict_selection at the STRONGER model first. The fallback chain
-    # (cloud) leads if present; else the primary. We prepend a route explicitly.
-    stronger_first = list(reversed(router.default)) if len(router.default) > 1 else router.default
-    router.routes[PREDICT_SELECTION_PURPOSE] = stronger_first  # type: ignore[index]
+    if not chain:
+        print(f"provider {provider!r} has no key and no fallback is configured.",
+              file=sys.stderr)
+        return None
+    router.routes[PREDICT_SELECTION_PURPOSE] = chain  # type: ignore[index]
 
     cache = {}
     if _CACHE_PATH.exists():
         cache = {k: tuple(v) for k, v in json.loads(_CACHE_PATH.read_text()).items()}
     # The router's `call` types `purpose` as the frozen LLMPurpose Literal; the
-    # selector seam types it as `str` (it uses the unmapped `predict_selection`
-    # purpose). Runtime-compatible; cast bridges the Literal-vs-str variance without
-    # editing the frozen oracle-provenance interface.
+    # selector seam types it as `str`. Runtime-compatible; cast bridges the variance
+    # without editing the frozen oracle-provenance interface.
     return LLMSelector(cast(SelectorRouter, router), max_calls=max_calls, cache=cache)
 
 
@@ -96,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sample", type=int, default=0,
         help="date-stratified LLM sample size (0 = full universe, every point)",
+    )
+    parser.add_argument(
+        "--provider", default="groq", choices=["groq", "gemini", "ollama"],
+        help="predict_selection provider, leading the chain (default: groq)",
     )
     parser.add_argument("--report", help="write the gate-report markdown here")
     args = parser.parse_args(argv)
@@ -112,11 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         print("HALT: inherited floor does not reconcile — GO is suspect.", file=sys.stderr)
         return 1
 
-    selector = _build_selector(args.max_calls)
+    selector = _build_selector(args.max_calls, args.provider)
     if selector is None:
         print("HALT: Stage 1 needs a configured LLM. Set up Ollama or cloud keys.",
               file=sys.stderr)
         return 1
+    print(f"selection provider: {args.provider} (leads the fallback chain)")
 
     sample_ids = None
     if args.sample > 0:

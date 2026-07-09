@@ -105,7 +105,11 @@ class YFinanceMarketData:
 
     # ─── protocol methods ────────────────────────────────────────────────
 
-    async def get_current_quote(self, symbol: str) -> float:
+    async def get_current_quote(
+        self, symbol: str, timestamp: datetime | None = None
+    ) -> float:
+        # Live always prices at "now"; the optional timestamp exists for protocol
+        # parity with the offline backtest seam and is ignored here.
         info = await retry_with_backoff(
             lambda: asyncio.to_thread(self._ticker_info_raw, symbol),
             max_attempts=self._max_attempts,

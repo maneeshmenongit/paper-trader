@@ -29,6 +29,15 @@ OLLAMA_ENDPOINT_ENV = "OLLAMA_ENDPOINT"
 OLLAMA_MODEL_ENV = "OLLAMA_MODEL"
 OPENROUTER_MODEL_ENV = "OPENROUTER_MODEL"
 
+# Model-TIER routing (fast vs reasoning). Fast purposes (classification,
+# summarization, bias_tagging) are high-volume + mechanical → a cheap/local model.
+# Reasoning purposes (predict_selection) are judgment-heavy → a stronger model.
+# The reasoning tier is configured independently so an operator can point it at a
+# strong provider while fast stays local. Empty reasoning_provider → reasoning
+# falls back to the fast tier (single-tier behavior, unchanged).
+REASONING_PROVIDER_ENV = "PAPER_TRADER_REASONING_PROVIDER"  # groq | gemini | ollama | openrouter
+REASONING_MODEL_ENV = "PAPER_TRADER_REASONING_MODEL"  # provider-specific model id (optional)
+
 WATCHLIST_PATH_ENV = "PAPER_TRADER_WATCHLIST_PATH"
 DEFAULT_WATCHLIST_PATH = "./config/watchlist.toml"
 
@@ -52,11 +61,16 @@ class LiveConfig:
     """
 
     live_mode: bool
-    # LLM provider selection: which open-source path serves Research/PostMortem.
+    # LLM provider selection: which open-source path serves the FAST tier
+    # (Research/PostMortem — classification, summarization, bias_tagging).
     llm_provider: str  # "ollama" | "openrouter"
     ollama_endpoint: str
     ollama_model: str
     openrouter_model: str
+    # REASONING tier (judgment-heavy purposes, e.g. predict_selection). Empty
+    # provider → reasoning reuses the fast tier. Model empty → the provider's default.
+    reasoning_provider: str = ""  # "" | groq | gemini | ollama | openrouter
+    reasoning_model: str = ""
     # Secrets (may be empty when not configured / not in live mode).
     finnhub_api_key: str = ""
     openrouter_api_key: str = ""
@@ -76,6 +90,8 @@ class LiveConfig:
             "ollama_endpoint": self.ollama_endpoint,
             "ollama_model": self.ollama_model,
             "openrouter_model": self.openrouter_model,
+            "reasoning_provider": self.reasoning_provider or "(fast-tier)",
+            "reasoning_model": self.reasoning_model or "(provider-default)",
             "finnhub_api_key": mask(self.finnhub_api_key),
             "openrouter_api_key": mask(self.openrouter_api_key),
             "groq_api_key": mask(self.groq_api_key),
@@ -103,6 +119,8 @@ def load_live_config(env: dict[str, str] | None = None) -> LiveConfig:
         ollama_endpoint=get(OLLAMA_ENDPOINT_ENV, "http://localhost:11434"),
         ollama_model=get(OLLAMA_MODEL_ENV, "llama3.1:8b"),
         openrouter_model=get(OPENROUTER_MODEL_ENV, "meta-llama/llama-3.1-8b-instruct"),
+        reasoning_provider=get(REASONING_PROVIDER_ENV).strip().lower(),
+        reasoning_model=get(REASONING_MODEL_ENV),
         finnhub_api_key=get(FINNHUB_API_KEY_ENV),
         openrouter_api_key=get(OPENROUTER_API_KEY_ENV),
         groq_api_key=get(GROQ_API_KEY_ENV),
