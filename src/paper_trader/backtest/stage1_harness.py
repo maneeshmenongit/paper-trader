@@ -22,6 +22,7 @@ in return-on-bankroll terms, and is SUCCEEDED / FAILED / INCONCLUSIVE.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -186,6 +187,7 @@ def run_stage1(
     threshold_e: float = 0.03,
     random_seed: int = 42,
     sample_llm_points: set[tuple[str, object]] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> Stage1Report:
     md = OfflineMarketData(history)
     adapter = Stage0Settlement(md)
@@ -287,6 +289,9 @@ def run_stage1(
                     llm_dates.add(pd.Timestamp(p.entry_date).normalize())
                     if llm_out.entered:
                         llm_settled += 1
+                # Progress visibility: a slow run must never look "hung".
+                if progress is not None and len(llm.outcomes) % 25 == 0:
+                    progress(len(llm.outcomes), llm_selector.stats.calls)
     except MaxCallsExceededError as exc:
         return _incomplete_report(seed_bankroll, threshold_e, len(points), str(exc))
 

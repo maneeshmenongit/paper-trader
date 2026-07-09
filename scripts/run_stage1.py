@@ -131,9 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"LLM sample: ~{args.sample} points (date-stratified) → "
               f"{len(sample_ids)} point-ids")
 
+    def _progress(evaluated: int, calls: int) -> None:
+        print(f"  ... {evaluated} points evaluated, {calls} LLM calls", flush=True)
+
     try:
         rep = run_stage1(history, selector, seed_bankroll=args.bankroll,
-                         threshold_e=args.threshold, sample_llm_points=sample_ids)
+                         threshold_e=args.threshold, sample_llm_points=sample_ids,
+                         progress=_progress)
     except SanityViolationError as exc:
         print(f"SANITY VIOLATION — run not trustworthy: {exc}", file=sys.stderr)
         return 1
