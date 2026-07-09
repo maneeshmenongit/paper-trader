@@ -61,6 +61,21 @@ def test_build_client_unknown_provider():
         build_client("mistral", config=_config())
 
 
+def test_build_client_claude_requires_key():
+    with pytest.raises(ValueError, match="claude"):
+        build_client("claude", config=_config(anthropic_api_key=""))
+
+
+def test_build_client_claude_ok():
+    c = build_client("claude", model="claude-sonnet-5", config=_config(anthropic_api_key="k"))
+    assert c.name == "claude"
+
+
+def test_build_client_anthropic_alias():
+    c = build_client("anthropic", config=_config(anthropic_api_key="k"))
+    assert c.name == "claude"
+
+
 # ─── build_tiered_router: separate fast vs reasoning chains ──────────────
 
 def test_reasoning_routed_to_its_own_provider():

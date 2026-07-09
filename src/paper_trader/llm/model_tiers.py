@@ -43,6 +43,13 @@ def build_client(provider: str, *, model: str = "", config: object) -> LLMClient
     a missing required key.
     """
     provider = provider.strip().lower()
+    if provider in ("claude", "anthropic"):
+        from paper_trader.llm.claude_client import ClaudeClient
+
+        key = getattr(config, "anthropic_api_key", "")
+        if not key:
+            raise ValueError("reasoning provider 'claude' requires ANTHROPIC_API_KEY")
+        return ClaudeClient(api_key=key, model=model) if model else ClaudeClient(api_key=key)
     if provider == "groq":
         from paper_trader.llm.groq_client import GroqClient
 
