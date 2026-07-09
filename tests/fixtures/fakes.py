@@ -43,7 +43,9 @@ class FakeMarketData:
         self.ohlcv = ohlcv or {}
         self.metadata = metadata or {}
 
-    async def get_current_quote(self, symbol: str) -> float:
+    async def get_current_quote(
+        self, symbol: str, timestamp: datetime | None = None
+    ) -> float:
         return self.quotes.get(symbol, 100.0)
 
     async def get_ohlcv(self, symbol: str, period_days: int) -> list[OHLCVBar]:
