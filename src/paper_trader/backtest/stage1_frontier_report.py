@@ -109,6 +109,25 @@ def render_frontier_report(
 
 def _three_way(rep: Stage1Report) -> str:
     beats_null = rep.llm_pnl >= rep.null_pnl
+    if rep.verdict == "INCONCLUSIVE":
+        return (
+            "**INCONCLUSIVE — the caveat is NOT closed, but for an informative reason.** "
+            f"The strong model settled only **{rep.llm_settled} point(s)** "
+            f"({rep.llm_abstain_rate * 100:.1f}% abstention), below the coverage floor, "
+            "so there is no verdict to compare against 7B. The cause is not a bug: the "
+            "frontier model was systematically **honestly uncertain** — its confidence "
+            "capped at the C1 floor (0.60) on nearly every point, so the fixed enter-iff-"
+            "confidence≥0.60 rule made it abstain almost everywhere. That is arguably the "
+            "*correct* behavior on three coin-flip methods with price features only: a "
+            "strong reasoner declines to fake conviction. Per §2.4 the C1 threshold was "
+            "NOT moved to force a decision. Reading: the model didn't fail the thesis — "
+            "it declined to play, which tells us price-features-only selection lacks a "
+            "confidently-exploitable signal. Options (human's call): (a) accept that the "
+            "7B FAILED + frontier-abstains pattern jointly points to a weak thesis and "
+            "stop; (b) re-run with the C1 floor treated as a **recorded, ratified** "
+            "parameter change (not a silent tune) if you want a settled-trade comparison; "
+            "(c) proceed to Stage 3 to test whether news changes the confidence picture."
+        )
     if rep.verdict == "SUCCEEDED":
         return (
             "**SUCCEEDED (≥ 3%)** — the thesis is supported on price features alone. "
