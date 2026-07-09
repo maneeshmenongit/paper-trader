@@ -91,6 +91,8 @@ class Stage1Report:
     llm_tokens: int
     verdict: str                    # SUCCEEDED | FAILED | INCONCLUSIVE | INCOMPLETE
     sanity_passed: bool
+    sampled: bool = False           # True → LLM ran on a subsample of points
+    llm_points_evaluated: int = 0   # points the LLM path actually evaluated
     incomplete_reason: str | None = None
 
 
@@ -116,6 +118,47 @@ def _ordered_points(history: dict[str, pd.DataFrame]) -> list[_Point]:
     return sorted(pts, key=lambda p: (p.entry_date, p.symbol))
 
 
+def _point_id(p: _Point) -> tuple[str, object]:
+    """Stable identity for a point (symbol, decision-date)."""
+    return (p.symbol, pd.Timestamp(p.entry_date).normalize())
+
+
+def select_sample(
+    points: list[_Point], *, target: int, seed: int = 42
+) -> set[tuple[str, object]]:
+    """A date-stratified sample of ~``target`` point-ids for the LLM path.
+
+    Stratifying by decision-date (not truncating chronologically) preserves the
+    full date range and symbol spread so §5's diversity floors can be met on a
+    fraction of the calls. Every non-sampled point still feeds the floor / null /
+    random / oracle strategies and the trailing scoreboard — only the (expensive)
+    LLM call is subsampled. Deterministic given ``seed``.
+    """
+    if target <= 0 or target >= len(points):
+        return {_point_id(p) for p in points}
+    rng = random.Random(seed)
+    by_date: dict[pd.Timestamp, list[_Point]] = {}
+    for p in points:
+        by_date.setdefault(pd.Timestamp(p.entry_date).normalize(), []).append(p)
+    dates = sorted(by_date)
+    per_date = max(1, target // len(dates))
+    chosen: set[tuple[str, object]] = set()
+    for d in dates:
+        bucket = by_date[d]
+        rng.shuffle(bucket)
+        for p in bucket[:per_date]:
+            chosen.add(_point_id(p))
+    # Top up (or trim) toward the target from a global shuffle for stability.
+    if len(chosen) < target:
+        pool = [p for p in points if _point_id(p) not in chosen]
+        rng.shuffle(pool)
+        for p in pool:
+            if len(chosen) >= target:
+                break
+            chosen.add(_point_id(p))
+    return chosen
+
+
 def run_stage1(
     history: dict[str, pd.DataFrame],
     llm_selector: LLMSelector,
@@ -123,6 +166,7 @@ def run_stage1(
     seed_bankroll: float = 100_000.0,
     threshold_e: float = 0.03,
     random_seed: int = 42,
+    sample_llm_points: set[tuple[str, object]] | None = None,
 ) -> Stage1Report:
     md = OfflineMarketData(history)
     adapter = Stage0Settlement(md)
@@ -150,6 +194,9 @@ def run_stage1(
     llm_path_points = 0
     llm_symbols: set[str] = set()
     llm_dates: set[pd.Timestamp] = set()
+    # Sampled-subset sums so the verdict compares LLM vs floor/null/oracle over the
+    # SAME points (fair when sampling; identical to the full sums when not).
+    s_momentum = s_null = s_oracle = 0.0
 
     try:
         for p in points:
@@ -189,19 +236,8 @@ def run_stage1(
             rnd.outcomes.append(_settle_selection(adapter, p, forecasts, rnd_sel))
             rnd.selections.append(rnd_sel)
 
-            # llm_selector.
-            llm_sel = llm_selector.select(p.symbol, forecasts, closes, p.entry_date)
-            llm_out = _settle_selection(adapter, p, forecasts, llm_sel)
-            llm.outcomes.append(llm_out)
-            llm.selections.append(llm_sel)
-            if llm_sel.selection_mode == "llm":
-                llm_path_points += 1
-                llm_symbols.add(p.symbol)
-                llm_dates.add(pd.Timestamp(p.entry_date).normalize())
-                if llm_out.entered:
-                    llm_settled += 1
-
-            # ceiling & oracle (band context).
+            # ceiling & oracle (band context) — computed before the LLM block so the
+            # per-point oracle can feed the sampled-subset comparison.
             entry_c = closes[-1]
             realized = (p.exit_close - entry_c) / entry_c
             ceiling_pnl = max(0.0, realized) * adapter.notional
@@ -211,7 +247,27 @@ def run_stage1(
                 adapter.settle(p.symbol, forecasts[n], p.entry_date, p.exit_date).pnl
                 for n, fc in forecasts.items() if fc.eligible
             ]
-            oracle_pnls.append(max(elig_pnls) if elig_pnls else 0.0)
+            oracle_pnl = max(elig_pnls) if elig_pnls else 0.0
+            oracle_pnls.append(oracle_pnl)
+
+            # llm_selector — only on sampled points (if a sample is given). A
+            # non-sampled point is skipped for the LLM path entirely (no call, not
+            # counted); it still contributes to every other strategy + the scoreboard.
+            if sample_llm_points is None or _point_id(p) in sample_llm_points:
+                llm_sel = llm_selector.select(p.symbol, forecasts, closes, p.entry_date)
+                llm_out = _settle_selection(adapter, p, forecasts, llm_sel)
+                llm.outcomes.append(llm_out)
+                llm.selections.append(llm_sel)
+                # Same-point sums for a fair sampled comparison.
+                s_momentum += mom_out.pnl
+                s_null += null_out.pnl
+                s_oracle += oracle_pnl
+                if llm_sel.selection_mode == "llm":
+                    llm_path_points += 1
+                    llm_symbols.add(p.symbol)
+                    llm_dates.add(pd.Timestamp(p.entry_date).normalize())
+                    if llm_out.entered:
+                        llm_settled += 1
     except MaxCallsExceededError as exc:
         return _incomplete_report(seed_bankroll, threshold_e, len(points), str(exc))
 
@@ -223,20 +279,29 @@ def run_stage1(
         sanity.check_entry_price_realism(tally.outcomes, md.has_close_on)
     sanity.check_nonzero_settlement(momentum.outcomes)
 
+    # Full-universe totals (dollar table / band context).
     floor_pnl = momentum.total_pnl
     null_pnl = null.total_pnl
-    effective_floor = max(floor_pnl, null_pnl)
-    llm_pnl = llm.total_pnl
     oracle_total = sum(oracle_pnls)
+    llm_pnl = llm.total_pnl
+
+    # Verdict is measured over the SAME points the LLM actually ran on — the sampled
+    # subset when sampling, else the full set (s_* == full sums then). This keeps the
+    # edge honest: LLM vs floor/null/oracle on identical points.
+    sampled = sample_llm_points is not None
+    v_floor = s_momentum if sampled else floor_pnl
+    v_null = s_null if sampled else null_pnl
+    v_oracle = s_oracle if sampled else oracle_total
+    effective_floor = max(v_floor, v_null)
     llm_edge = llm_pnl - effective_floor
-    denom = oracle_total - effective_floor
+    denom = v_oracle - effective_floor
     capture = (llm_edge / denom) if denom > 0 else 0.0
 
     verdict = _verdict(
         llm_edge_ratio=llm_edge / seed_bankroll,
         threshold_e=threshold_e,
         llm_pnl=llm_pnl,
-        null_pnl=null_pnl,
+        null_pnl=v_null,
         llm_settled=llm_settled,
         n_symbols=len(llm_symbols),
         n_dates=len(llm_dates),
@@ -261,12 +326,14 @@ def run_stage1(
         llm_llm_path_points=llm_path_points,
         llm_distinct_symbols=len(llm_symbols),
         llm_distinct_dates=len(llm_dates),
-        llm_abstain_rate=llm.n_abstained / len(points),
+        llm_abstain_rate=(llm.n_abstained / len(llm.outcomes)) if llm.outcomes else 0.0,
         llm_calls=llm_selector.stats.calls,
         llm_cache_hits=llm_selector.stats.cache_hits,
         llm_tokens=llm_selector.stats.tokens,
         verdict=verdict,
         sanity_passed=True,
+        sampled=sampled,
+        llm_points_evaluated=len(llm.outcomes),
     )
 
 

@@ -30,7 +30,11 @@ from paper_trader.backtest.llm_selector import (
 from paper_trader.backtest.sanity import SanityViolationError
 from paper_trader.backtest.stage0_universe import STAGE0_UNIVERSE
 from paper_trader.backtest.stage1_gate_report import write_gate_report
-from paper_trader.backtest.stage1_harness import run_stage1
+from paper_trader.backtest.stage1_harness import (
+    _ordered_points,
+    run_stage1,
+    select_sample,
+)
 
 _CACHE_PATH = Path("data/backtest/stage1_selection_cache.json")
 
@@ -89,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-calls", type=int, default=2000)
     parser.add_argument("--threshold", type=float, default=0.03)
     parser.add_argument("--bankroll", type=float, default=100_000.0)
+    parser.add_argument(
+        "--sample", type=int, default=0,
+        help="date-stratified LLM sample size (0 = full universe, every point)",
+    )
     parser.add_argument("--report", help="write the gate-report markdown here")
     args = parser.parse_args(argv)
 
@@ -110,9 +118,15 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    sample_ids = None
+    if args.sample > 0:
+        sample_ids = select_sample(_ordered_points(history), target=args.sample)
+        print(f"LLM sample: ~{args.sample} points (date-stratified) → "
+              f"{len(sample_ids)} point-ids")
+
     try:
         rep = run_stage1(history, selector, seed_bankroll=args.bankroll,
-                         threshold_e=args.threshold)
+                         threshold_e=args.threshold, sample_llm_points=sample_ids)
     except SanityViolationError as exc:
         print(f"SANITY VIOLATION — run not trustworthy: {exc}", file=sys.stderr)
         return 1

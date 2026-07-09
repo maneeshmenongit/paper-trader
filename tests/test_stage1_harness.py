@@ -9,7 +9,11 @@ import pandas as pd
 
 from paper_trader.backtest.llm_selector import LLMSelector
 from paper_trader.backtest.stage1_gate_report import render_gate_report
-from paper_trader.backtest.stage1_harness import run_stage1
+from paper_trader.backtest.stage1_harness import (
+    _ordered_points,
+    run_stage1,
+    select_sample,
+)
 
 
 def _synthetic_history(n_symbols=25, n_days=90, seed=3):
@@ -82,6 +86,32 @@ def test_stage1_gate_report_renders():
     assert rep.verdict in md
     assert "H3" in md  # carried Stage-3 precondition flag
     assert "stage1-selector-v1" in md  # the versioned prompt is recorded
+
+
+def test_sampling_limits_llm_calls_but_keeps_coverage():
+    hist = _synthetic_history(n_symbols=25, n_days=90)
+    points = _ordered_points(hist)
+    sample = select_sample(points, target=200)
+    router = _StubRouter()
+    rep = run_stage1(hist, LLMSelector(router), sample_llm_points=sample)
+    # LLM ran only on sampled points → far fewer calls than the full point set.
+    assert rep.sampled is True
+    assert rep.llm_points_evaluated <= len(sample)
+    assert rep.llm_points_evaluated < len(points)
+    # Date stratification preserves broad date coverage even on the sample.
+    assert rep.llm_distinct_dates >= 40
+
+
+def test_sample_is_deterministic():
+    points = _ordered_points(_synthetic_history(n_symbols=10, n_days=60))
+    assert select_sample(points, target=100) == select_sample(points, target=100)
+
+
+def test_no_sample_evaluates_all_points():
+    hist = _synthetic_history(n_symbols=22, n_days=70)
+    rep = run_stage1(hist, LLMSelector(_StubRouter()))
+    assert rep.sampled is False
+    assert rep.llm_points_evaluated == len(_ordered_points(hist))
 
 
 def test_stage1_null_selector_is_ex_ante():

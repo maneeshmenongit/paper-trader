@@ -40,6 +40,8 @@ from paper_trader.backtest.null_selector import Selection, eligible_methods
 SELECTION_PROMPT_VERSION = "stage1-selector-v1"
 PREDICT_SELECTION_PURPOSE = "predict_selection"
 CONFIDENCE_FLOOR = 0.60  # C1: below → abstain (NoView / don't-enter)
+# Reasoning models emit think-tokens before the JSON; give them room (200 truncates).
+_SELECTION_MAX_TOKENS = 600
 
 _SELECTION_SYSTEM_PROMPT = (
     "You are a forecasting-method selector for a long-only paper trader. You do NOT "
@@ -193,9 +195,11 @@ class LLMSelector:
                 )
             user = _build_user_prompt(symbol, forecasts, elig, features)
             try:
+                # 600 not 200: reasoning models (e.g. qwen3) emit think-tokens before
+                # the JSON; too tight a budget truncates the answer to empty.
                 text, tokens = self.router.call(
                     PREDICT_SELECTION_PURPOSE, _SELECTION_SYSTEM_PROMPT, user,
-                    max_tokens=200, json_mode=True,
+                    max_tokens=_SELECTION_MAX_TOKENS, json_mode=True,
                 )
             except (MaxCallsExceededError, LLMUnavailableError):
                 raise

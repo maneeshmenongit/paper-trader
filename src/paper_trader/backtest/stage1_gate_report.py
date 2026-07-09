@@ -53,6 +53,15 @@ def render_gate_report(rep: Stage1Report, *, floor_crosscheck: str) -> str:
         "",
         f"- Seed bankroll: **${rep.seed_bankroll:,.0f}** · universe **{rep.n_symbols} "
         f"symbols**, **{rep.n_points:,} points**.",
+        (
+            f"- **Sampled run:** the LLM path ran on a date-stratified sample of "
+            f"**{rep.llm_points_evaluated:,} points** "
+            f"({rep.llm_points_evaluated / rep.n_points * 100:.1f}% of the universe); "
+            "the edge/floor/oracle below are measured over those SAME points. All "
+            "strategies + the trailing scoreboard still saw the full history."
+            if rep.sampled
+            else f"- Full run: the LLM path evaluated all {rep.llm_points_evaluated:,} points."
+        ),
         "",
         "| Strategy | Realized P&L | Entered |",
         "|---|---:|---:|",
