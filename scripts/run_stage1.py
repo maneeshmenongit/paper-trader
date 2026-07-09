@@ -58,12 +58,14 @@ def _floor_crosscheck(history: dict[str, pd.DataFrame]) -> tuple[bool, str]:
     return ok, msg
 
 
-def _build_selector(max_calls: int | None, reasoning_provider: str) -> LLMSelector | None:
+def _build_selector(
+    max_calls: int | None, reasoning_provider: str, reasoning_model: str,
+) -> LLMSelector | None:
     """Build an LLMSelector over a TIERED router (reasoning tier = predict_selection).
 
     Uses the framework's ``build_tiered_router``: reasoning purposes route to
-    ``reasoning_provider`` (default groq — strong + fast, free tier first), fast
-    purposes stay on the cheap/local model. No hand-assembled chains here.
+    ``reasoning_provider`` (+ optional ``reasoning_model``), then degrade to the fast
+    chain. No hand-assembled chains here.
     """
     from dataclasses import replace
 
@@ -73,9 +75,16 @@ def _build_selector(max_calls: int | None, reasoning_provider: str) -> LLMSelect
 
     try:
         config = load_live_config()
-        # The CLI's --provider chooses the reasoning tier; honor it over the env
-        # default so a run is reproducible from the command line.
-        config = replace(config, reasoning_provider=reasoning_provider)
+        # The CLI's --provider/--reasoning-model choose the reasoning tier; honor
+        # them over env defaults so a run is reproducible from the command line.
+        overrides = {"reasoning_provider": reasoning_provider}
+        if reasoning_model:
+            overrides["reasoning_model"] = reasoning_model
+        # If the reasoning tier is Ollama, also point the fast tier's Ollama at the
+        # same working model so the failover chain has no dead/unpulled endpoint.
+        if reasoning_provider == "ollama" and reasoning_model:
+            overrides["ollama_model"] = reasoning_model
+        config = replace(config, **overrides)
         router = build_tiered_router(config, TokenBudget(per_cycle_limit=10_000_000))
     except Exception as exc:  # noqa: BLE001 — no provider configured is a clean halt
         print(f"no LLM provider configured: {exc}", file=sys.stderr)
@@ -103,6 +112,10 @@ def main(argv: list[str] | None = None) -> int:
         "--provider", default="groq", choices=["groq", "gemini", "ollama"],
         help="predict_selection provider, leading the chain (default: groq)",
     )
+    parser.add_argument(
+        "--reasoning-model", default="",
+        help="explicit reasoning model id (e.g. qwen2.5:7b for ollama; empty = default)",
+    )
     parser.add_argument("--report", help="write the gate-report markdown here")
     args = parser.parse_args(argv)
 
@@ -118,12 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         print("HALT: inherited floor does not reconcile — GO is suspect.", file=sys.stderr)
         return 1
 
-    selector = _build_selector(args.max_calls, args.provider)
+    selector = _build_selector(args.max_calls, args.provider, args.reasoning_model)
     if selector is None:
         print("HALT: Stage 1 needs a configured LLM. Set up Ollama or cloud keys.",
               file=sys.stderr)
         return 1
-    print(f"selection provider: {args.provider} (leads the fallback chain)")
+    model_note = f" ({args.reasoning_model})" if args.reasoning_model else ""
+    print(f"selection provider: {args.provider}{model_note} (leads the fallback chain)")
 
     sample_ids = None
     if args.sample > 0:
