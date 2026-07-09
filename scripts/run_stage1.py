@@ -22,7 +22,6 @@ import pandas as pd
 
 from paper_trader.backtest import historical_fetch
 from paper_trader.backtest.llm_selector import (
-    PREDICT_SELECTION_PURPOSE,
     LLMSelector,
     LLMUnavailableError,
     SelectorRouter,
@@ -59,48 +58,28 @@ def _floor_crosscheck(history: dict[str, pd.DataFrame]) -> tuple[bool, str]:
     return ok, msg
 
 
-def _build_selection_chain(config, provider: str) -> list:
-    """Build the predict_selection provider chain, leading with ``provider``.
+def _build_selector(max_calls: int | None, reasoning_provider: str) -> LLMSelector | None:
+    """Build an LLMSelector over a TIERED router (reasoning tier = predict_selection).
 
-    §4.B wants a strong model first; cost guidance is Groq (free tier) before
-    Gemini before Anthropic. Groq's default (llama-3.3-70b-versatile) is a strong,
-    fast model — the sensible default. Falls back to the others (when keyed) so a
-    provider miss degrades instead of halting.
+    Uses the framework's ``build_tiered_router``: reasoning purposes route to
+    ``reasoning_provider`` (default groq — strong + fast, free tier first), fast
+    purposes stay on the cheap/local model. No hand-assembled chains here.
     """
-    from paper_trader.llm.gemini_client import GeminiClient
-    from paper_trader.llm.groq_client import GroqClient
-    from paper_trader.llm.ollama_client import OllamaClient
+    from dataclasses import replace
 
-    def make(name: str) -> object | None:
-        if name == "groq":
-            return GroqClient(api_key=config.groq_api_key) if config.groq_api_key else None
-        if name == "gemini":
-            return GeminiClient(api_key=config.gemini_api_key) if config.gemini_api_key else None
-        return OllamaClient(model=config.ollama_model, endpoint=config.ollama_endpoint)
-
-    order = [provider] + [p for p in ("groq", "gemini", "ollama") if p != provider]
-    return [c for c in (make(p) for p in order) if c is not None]
-
-
-def _build_selector(max_calls: int | None, provider: str) -> LLMSelector | None:
-    """Build an LLMSelector routing predict_selection at ``provider`` first."""
     from paper_trader.live.config import load_live_config
-    from paper_trader.live.providers import build_llm_router
+    from paper_trader.live.providers import build_tiered_router
     from paper_trader.llm.budget import TokenBudget
 
     try:
         config = load_live_config()
-        router = build_llm_router(config, TokenBudget(per_cycle_limit=10_000_000))
-        chain = _build_selection_chain(config, provider)
+        # The CLI's --provider chooses the reasoning tier; honor it over the env
+        # default so a run is reproducible from the command line.
+        config = replace(config, reasoning_provider=reasoning_provider)
+        router = build_tiered_router(config, TokenBudget(per_cycle_limit=10_000_000))
     except Exception as exc:  # noqa: BLE001 — no provider configured is a clean halt
         print(f"no LLM provider configured: {exc}", file=sys.stderr)
         return None
-
-    if not chain:
-        print(f"provider {provider!r} has no key and no fallback is configured.",
-              file=sys.stderr)
-        return None
-    router.routes[PREDICT_SELECTION_PURPOSE] = chain  # type: ignore[index]
 
     cache = {}
     if _CACHE_PATH.exists():
