@@ -10,6 +10,7 @@ import pytest
 from paper_trader.backtest.llm_selector import (
     CONFIDENCE_FLOOR,
     LLMSelector,
+    LLMUnavailableError,
     MaxCallsExceededError,
     build_features,
     cache_key,
@@ -124,6 +125,18 @@ def test_max_calls_raises():
     sel.select("AAPL", _fc(momentum=True, arima=True), CLOSES, D)
     with pytest.raises(MaxCallsExceededError):
         sel.select("MSFT", _fc(momentum=True, arima=True), CLOSES, D)
+
+
+# ─── infra failure → clean typed halt, not a raw traceback ───────────────
+
+def test_provider_failure_raises_unavailable():
+    class BoomRouter:
+        def call(self, *a, **k):
+            raise ConnectionError("endpoint down")
+
+    sel = LLMSelector(BoomRouter())
+    with pytest.raises(LLMUnavailableError):
+        sel.select("AAPL", _fc(momentum=True, arima=True), CLOSES, D)
 
 
 # ─── no post-decision data in features (§2.3) ────────────────────────────

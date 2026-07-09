@@ -66,6 +66,15 @@ class MaxCallsExceededError(RuntimeError):
     """The ``--max-calls`` budget was hit → the run is INCOMPLETE (first-class)."""
 
 
+class LLMUnavailableError(RuntimeError):
+    """The LLM provider could not be reached / all providers failed on a call.
+
+    Distinct from a low-confidence abstention: this is an INFRASTRUCTURE failure
+    (endpoint down, every provider in the chain errored), so the run halts cleanly
+    rather than fabricating a pick or dumping a transport traceback.
+    """
+
+
 @dataclass
 class LLMSelectorStats:
     calls: int = 0
@@ -183,10 +192,17 @@ class LLMSelector:
                     f"max-calls cap {self.max_calls} reached — run is INCOMPLETE"
                 )
             user = _build_user_prompt(symbol, forecasts, elig, features)
-            text, tokens = self.router.call(
-                PREDICT_SELECTION_PURPOSE, _SELECTION_SYSTEM_PROMPT, user,
-                max_tokens=200, json_mode=True,
-            )
+            try:
+                text, tokens = self.router.call(
+                    PREDICT_SELECTION_PURPOSE, _SELECTION_SYSTEM_PROMPT, user,
+                    max_tokens=200, json_mode=True,
+                )
+            except (MaxCallsExceededError, LLMUnavailableError):
+                raise
+            except Exception as exc:  # noqa: BLE001 — infra failure → clean halt
+                raise LLMUnavailableError(
+                    f"LLM provider call failed ({type(exc).__name__}: {exc})"
+                ) from exc
             self.stats.calls += 1
             self.stats.tokens += tokens
             method, conf, rationale = _parse_selection(text, elig)

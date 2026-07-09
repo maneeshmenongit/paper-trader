@@ -24,6 +24,7 @@ from paper_trader.backtest import historical_fetch
 from paper_trader.backtest.llm_selector import (
     PREDICT_SELECTION_PURPOSE,
     LLMSelector,
+    LLMUnavailableError,
     SelectorRouter,
 )
 from paper_trader.backtest.sanity import SanityViolationError
@@ -114,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
                          threshold_e=args.threshold)
     except SanityViolationError as exc:
         print(f"SANITY VIOLATION — run not trustworthy: {exc}", file=sys.stderr)
+        return 1
+    except LLMUnavailableError as exc:
+        print(f"HALT: {exc}", file=sys.stderr)
+        print("The configured LLM is unreachable. Start Ollama (`ollama serve` + "
+              "`ollama pull <model>`) or add a cloud key, then re-run.", file=sys.stderr)
         return 1
 
     # Persist the selection cache for free re-runs.
