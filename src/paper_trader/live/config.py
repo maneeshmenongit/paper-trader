@@ -23,6 +23,7 @@ FINNHUB_API_KEY_ENV = "FINNHUB_API_KEY"
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
+ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY"
 
 LLM_PROVIDER_ENV = "PAPER_TRADER_LLM_PROVIDER"  # ollama | openrouter | hosted
 OLLAMA_ENDPOINT_ENV = "OLLAMA_ENDPOINT"
@@ -76,6 +77,7 @@ class LiveConfig:
     openrouter_api_key: str = ""
     groq_api_key: str = ""
     gemini_api_key: str = ""
+    anthropic_api_key: str = ""
     watchlist_path: Path = field(default_factory=lambda: Path(DEFAULT_WATCHLIST_PATH))
 
     def redacted(self) -> dict[str, object]:
@@ -96,6 +98,7 @@ class LiveConfig:
             "openrouter_api_key": mask(self.openrouter_api_key),
             "groq_api_key": mask(self.groq_api_key),
             "gemini_api_key": mask(self.gemini_api_key),
+            "anthropic_api_key": mask(self.anthropic_api_key),
             "watchlist_path": str(self.watchlist_path),
         }
 
@@ -125,5 +128,6 @@ def load_live_config(env: dict[str, str] | None = None) -> LiveConfig:
         openrouter_api_key=get(OPENROUTER_API_KEY_ENV),
         groq_api_key=get(GROQ_API_KEY_ENV),
         gemini_api_key=get(GEMINI_API_KEY_ENV),
+        anthropic_api_key=get(ANTHROPIC_API_KEY_ENV),
         watchlist_path=Path(get(WATCHLIST_PATH_ENV, DEFAULT_WATCHLIST_PATH)),
     )

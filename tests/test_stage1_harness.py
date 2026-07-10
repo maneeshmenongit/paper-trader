@@ -78,6 +78,24 @@ def test_stage1_verdict_needs_coverage():
     assert rep.verdict == "INCONCLUSIVE"
 
 
+def test_sampled_report_labels_populations_consistently():
+    # Regression for the audit's $556.75 mislabel: a sampled report must show the
+    # SAMPLED effective floor from the sampled sums, never max(full, full) = sampled.
+    hist = _synthetic_history(n_symbols=25, n_days=90)
+    sample = select_sample(_ordered_points(hist), target=200)
+    rep = run_stage1(hist, LLMSelector(_StubRouter()), sample_llm_points=sample)
+    assert rep.sampled is True
+    # The effective floor equals max of the SAMPLED momentum/null sums.
+    assert rep.effective_floor_pnl == max(rep.sampled_floor_momentum, rep.sampled_null)
+    md = render_gate_report(rep, floor_crosscheck="ok")
+    # The §3 line uses the sampled floor, and the table is labeled by population.
+    assert "Full-universe P&L" in md and "Sampled P&L" in md
+    assert f"${rep.effective_floor_pnl:,.2f}" in md
+    # The full-universe momentum ($) must NOT appear inside the max(...) = eff-floor line.
+    line = next(ln for ln in md.splitlines() if "effective floor = max" in ln)
+    assert f"${rep.sampled_floor_momentum:,.2f}" in line
+
+
 def test_stage1_gate_report_renders():
     sel = LLMSelector(_StubRouter())
     rep = run_stage1(_synthetic_history(), sel)

@@ -152,6 +152,34 @@ A second principle, learned from the governance-tooling survey: **adopting a fra
 
 ---
 
+## 3b. Ratified framework additions & recorded decisions (built in-thread)
+
+Additive framework surface produced while running the price-features method-selector
+thesis, ratified for reuse. Distinct from the external-alternatives survey above:
+these are our own capabilities and recorded decisions. Authority for the close:
+`STEWARD_THESIS_CLOSEOUT_PRICE_SELECTOR_001`.
+
+### Capabilities (§5 of the close-out) — RATIFIED, reusable
+
+| Capability | Where | Status | Caveat |
+|---|---|---|---|
+| Tiered model routing (fast vs reasoning per purpose) | `llm/model_tiers.py`, `live/providers.build_tiered_router` | RATIFIED | Purpose→tier map still needs officer/proposer entries (audit DT-18) before Stage-2/3 governance. |
+| `ClaudeClient` (Anthropic client) | `llm/claude_client.py` | RATIFIED | Application-owned; not oracle-provenance. `json_mode` is a soft prompt hint (no strict schema). |
+| `AttestingRouter` (halt-not-downgrade + per-point model attestation, DT-17) | `backtest/attesting_router.py` | RATIFIED | **Live halt fired only over cache this thread — must be fired once for real before trusted in the new thread.** |
+| Real-math scoring path + backtest harness (5 sanity assertions, floor/ceiling, dollar table) | `analytics/*`, `backtest/*`, `data/offline.py` seam | RATIFIED | The disconfirmation engine; bug-hunted. Ready to point at a new thesis. |
+
+### Recorded decisions
+
+| ID | Decision | Disposition |
+|---|---|---|
+| **DT-16** | Reporting is deterministic AND population-labeled — numbers emitted by the harness/report writer, never re-narrated by a model; one table never mixes full-universe and sampled populations. | RECORDED + IMPLEMENTED (close-out Task A). Origin: the `max($2,110,$2,110)=$556.75` mislabel. |
+| **DT-17** | Tier-unavailability is a flagged degradation, not a silent downgrade — a purpose's desired (esp. reasoning) tier, when unavailable, HALTS with a typed error rather than quietly serving a weaker model; per-call model attestation records what actually served. | RECORDED + IMPLEMENTED (`AttestingRouter`). Live-fire pending (caveat above). |
+| **DT-18** | Complete + ratify the purpose→tier map before Stage 2/3 — an explicit reviewed table including the correction officer and proposer (judgment-heavy). | RECORDED, OPEN — due before any Stage-2/3 governance work. |
+| **DT-19** | C1 confidence semantics for a *selector* — recorded as a known limitation, NOT operationally redefined. The selector inherited the forecaster's directional-certainty ≥ 0.60 gate; it was never cleanly redefined for a selector's confidence. Because the thesis is STOPPED, we do not re-gate. Lesson: any agent reusing a confidence gate must define what that confidence *measures* for its role, up front. | RECORDED (close-out §4). Not re-run. |
+| **D1** | Stage 0 extraction of `analytics/pnl.py` + `analytics/direction_score.py` from `postmortem.py` (behavior-neutral, human-gated). | RECORDED spec amendment — authority docs read "extract to," not "import from." |
+
+---
+
 ## 4. The meta-point (how this register keeps the product improving)
 
 Steward's governance *core* is build-our-own, because the membrane (one-way evidence) plus the structurally-non-optional human gate is the novel, differentiating bet — and the closest market option (EvoMap) inverts exactly that bet by making governance optional. But "build the core" does not mean "hand-roll every component." Several individual Steward components have mature external implementations (human gate → HumanLayer; ledger integrity → crypto-chaining; trace → Langfuse/OTel; invariant enforcement → OPA/Cedar) that should be evaluated at build time, each against a named need. And the academic prior art (governed capability evolution; behavioral drift) likely solves v2 sub-problems before they are hit.
