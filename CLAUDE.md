@@ -60,9 +60,21 @@ half is built and proven end-to-end by the DT-12.5 acceptance walk
   PostMortem) + rules-first supervisor; Store A emission (non-blocking,
   behavior-neutral); the observer wired as the terminal node.
 
+**⚠ THESIS FLAG — price-features method-selector: STOPPED (NO on evidence).**
+The LLM-as-method-selector thesis was TESTED (Stage 0 GO → Stage 1 7B FAILED →
+Sonnet-5 frontier INCONCLUSIVE-by-abstention) and STOPPED with a durable NO:
+price-derived information alone carries no confidently-exploitable next-horizon
+signal that method-selection can capture. NOT unvalidated (it is now tested), NOT
+validated. Authority + evidence: `docs/steward/STEWARD_THESIS_CLOSEOUT_PRICE_SELECTOR_001.md`.
+The untested lever (research/news-driven prediction, and dynamic exit timing) is
+the premise of a NEW thread — this thread does not chase it. The backtest harness,
+real-math scoring path, tiered router, `ClaudeClient`, and `AttestingRouter` (DT-17)
+are BANKED as reusable instruments (see the alternatives register §3b).
+
 **What is deliberately minimal / deferred:**
-- **Predict is momentum-only** — the full method-selector (mean_reversion, ARIMA,
-  LLM selection) is not built.
+- **Predict is momentum-only in the live loop** — the full method-selector
+  (mean_reversion, ARIMA, LLM selection) exists only in the STOPPED-thesis backtest
+  (`backtest/`), never wired into the live cycle.
 - **No live data clients** — protocols + fakes only (no live yfinance/Finnhub/CoinGecko).
 - **IN_WINDOW → verdict** — window `evaluation` stays null (v1 stub).
 - Interior placeholders: fractional-Kelly math, same-sector cap enforcement,
@@ -71,10 +83,10 @@ half is built and proven end-to-end by the DT-12.5 acceptance walk
 
 ## THE CURRENT BUILD AUTHORITY — the LIVE-OPERATION phase (next up)
 
-The immediate next phase is **operational shakedown: take the momentum skeleton
-LIVE on real market data with a self-hosted open-source LLM**, and accumulate REAL
-governance records. This is NOT the LLM-as-selector thesis experiment (Predict
-stays momentum-only; the thesis stays UNVALIDATED — that is a later, separate phase).
+The live-operation phase (T1–T6) is DONE, and the price-features method-selector
+thesis that followed it is STOPPED (see the thesis flag above). This section is
+retained for provenance; the NEXT thread is a research-driven redefinition (news +
+dynamic exit timing), not a continuation of the price-features thesis.
 
 **Authority doc:** `docs_to_claude/application_testing/STEWARD_PAPER_TRADER_LIVE_OPERATION_001.md`
 — READ IT FIRST. ⚠ It is under gitignored `docs_to_claude/` (the human's authoring
