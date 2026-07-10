@@ -32,7 +32,7 @@ import json
 import statistics
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 
 from paper_trader.backtest.methods import MethodForecast
 from paper_trader.backtest.null_selector import Selection, eligible_methods
@@ -161,10 +161,14 @@ class LLMSelector:
         router: SelectorRouter,
         *,
         max_calls: int | None = None,
-        cache: dict[str, tuple[str | None, float, str | None]] | None = None,
+        cache: dict[str, tuple[object, ...]] | None = None,
     ):
         self.router = router
         self.max_calls = max_calls
+        # Models that actually produced each selection this run, from live calls AND
+        # cache hits — so attestation (DT-17) works on a cached replay too, not only
+        # on the live pass. A cache entry records its serving model as a 4th element.
+        self.served_models: set[str] = set()
         self.cache = cache if cache is not None else {}
         self.stats = LLMSelectorStats()
 
@@ -187,7 +191,14 @@ class LLMSelector:
         key = cache_key(symbol, decision_date, elig, features)
         if key in self.cache:
             self.stats.cache_hits += 1
-            method, conf, rationale = self.cache[key]
+            cached = self.cache[key]
+            method = cast("str | None", cached[0])
+            conf = float(cached[1])  # type: ignore[arg-type]
+            rationale = cast("str | None", cached[2])
+            # 4th element (serving model) present on entries written by this build;
+            # older 3-tuples replay without attestation for that entry.
+            if len(cached) >= 4 and cached[3]:
+                self.served_models.add(str(cached[3]))
         else:
             if self.max_calls is not None and self.stats.calls >= self.max_calls:
                 raise MaxCallsExceededError(
@@ -210,7 +221,12 @@ class LLMSelector:
             self.stats.calls += 1
             self.stats.tokens += tokens
             method, conf, rationale = _parse_selection(text, elig)
-            self.cache[key] = (method, conf, rationale)
+            # Record the serving model (for attestation + cache replay). The router
+            # exposes it via ``served_model`` (AttestingRouter) when available.
+            served = getattr(self.router, "served_model", None)
+            if served:
+                self.served_models.add(str(served))
+            self.cache[key] = (method, conf, rationale, served)
 
         # Unparseable / off-menu → abstain (don't-enter), never a fabricated pick.
         if method is None:

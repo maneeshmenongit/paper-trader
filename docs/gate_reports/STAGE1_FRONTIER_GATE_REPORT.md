@@ -10,8 +10,8 @@
 - Step 0 floor cross-check: independent recompute $2,110.90 vs inherited $2,110.90 (ok).
 
 ## 2. Per-point model attestation (§4.2, DT-17)
-- Served by: **[]**.
-- **✗ MORE THAN ONE MODEL SERVED — run INVALID (a fallback leaked in).**
+- Served by: **['claude/claude-sonnet-5']**.
+- **✓ every settled point ran on the intended strong model — zero silent fallbacks.**
 - The AttestingRouter has no fallback chain: a provider miss HALTS rather than downgrading, so a frontier result can never be silently 7B.
 
 ## 3. Dollar table — strong model vs 7B, SAME 600 points

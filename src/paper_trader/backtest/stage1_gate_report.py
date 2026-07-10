@@ -27,6 +27,16 @@ _NORTH_STAR = (
 )
 
 
+def _table_row(name: str, full: float, sampled: float | None, is_sampled: bool) -> str:
+    """One dollar-table row. In a sampled run, show full-universe and sampled columns
+    (or '—' for strategies with no meaningful sampled sum). Otherwise one P&L column.
+    """
+    if not is_sampled:
+        return f"| {name} | ${full:,.2f} | — |"
+    samp = f"${sampled:,.2f}" if sampled is not None else "—"
+    return f"| {name} | ${full:,.2f} | {samp} |"
+
+
 def render_gate_report(rep: Stage1Report, *, floor_crosscheck: str) -> str:
     if rep.verdict == "INCOMPLETE":
         return "\n".join([
@@ -63,19 +73,37 @@ def render_gate_report(rep: Stage1Report, *, floor_crosscheck: str) -> str:
             else f"- Full run: the LLM path evaluated all {rep.llm_points_evaluated:,} points."
         ),
         "",
-        "| Strategy | Realized P&L | Entered |",
+        (
+            f"| Strategy | Full-universe P&L ({rep.n_points:,} pts) | "
+            f"Sampled P&L ({rep.llm_points_evaluated:,} pts) |"
+            if rep.sampled
+            else "| Strategy | Realized P&L | Entered |"
+        ),
         "|---|---:|---:|",
-        f"| always_momentum (floor) | ${rep.floor_momentum_pnl:,.2f} | — |",
-        f"| null_selector (real bar) | ${rep.null_pnl:,.2f} | — |",
-        f"| random_among_eligible | ${rep.random_pnl:,.2f} | — |",
-        f"| **llm_selector** | **${rep.llm_pnl:,.2f}** | {rep.llm_settled} |",
-        f"| oracle_best_method (hindsight) | ${rep.oracle_pnl:,.2f} | — |",
-        f"| ceiling (perfect foresight) | ${rep.ceiling_pnl:,.2f} | — |",
+        _table_row("always_momentum (floor)", rep.floor_momentum_pnl,
+                   rep.sampled_floor_momentum, rep.sampled),
+        _table_row("null_selector (real bar)", rep.null_pnl, rep.sampled_null, rep.sampled),
+        _table_row("random_among_eligible", rep.random_pnl, rep.sampled_random, rep.sampled),
+        (
+            f"| **llm_selector** | — | **${rep.llm_pnl:,.2f}** ({rep.llm_settled} settled) |"
+            if rep.sampled
+            else f"| **llm_selector** | **${rep.llm_pnl:,.2f}** | {rep.llm_settled} |"
+        ),
+        _table_row("oracle_best_method (hindsight)", rep.oracle_pnl, None, rep.sampled),
+        _table_row("ceiling (perfect foresight)", rep.ceiling_pnl, None, rep.sampled),
+        (
+            "- The verdict/edge below use the **Sampled** column (same points the LLM "
+            "ran on); the Full-universe column is band context only. Never compare the "
+            "sampled llm_selector against a full-universe floor."
+            if rep.sampled else ""
+        ),
         "",
         "## 3. LLM edge (over the EFFECTIVE floor)",
         "",
-        f"- Effective floor = max(momentum ${rep.floor_momentum_pnl:,.2f}, "
-        f"null ${rep.null_pnl:,.2f}) = **${rep.effective_floor_pnl:,.2f}**.",
+        f"- {'Sampled ' if rep.sampled else ''}effective floor = "
+        f"max(momentum ${rep.sampled_floor_momentum:,.2f}, "
+        f"null ${rep.sampled_null:,.2f}) = **${rep.effective_floor_pnl:,.2f}** "
+        f"(over the {rep.llm_points_evaluated:,} LLM points).",
         f"- **LLM edge: ${rep.llm_edge:,.2f}** = **{rep.llm_edge_ratio * 100:.3f}%** "
         f"of bankroll, over **{rep.llm_settled} settled LLM points**.",
         f"- Headroom captured (edge / (oracle − eff-floor)): "

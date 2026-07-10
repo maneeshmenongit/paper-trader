@@ -94,6 +94,13 @@ class Stage1Report:
     sanity_passed: bool
     sampled: bool = False           # True → LLM ran on a subsample of points
     llm_points_evaluated: int = 0   # points the LLM path actually evaluated
+    # Sampled-subset sums (over the SAME points the LLM ran on) — the honest
+    # comparison basis. Equal to the full-universe sums when not sampling. The
+    # dollar table shows full-universe floor/null/random/oracle for band context;
+    # these are what the verdict/edge are computed against.
+    sampled_floor_momentum: float = 0.0
+    sampled_null: float = 0.0
+    sampled_random: float = 0.0
     incomplete_reason: str | None = None
 
 
@@ -217,7 +224,7 @@ def run_stage1(
     llm_dates: set[pd.Timestamp] = set()
     # Sampled-subset sums so the verdict compares LLM vs floor/null/oracle over the
     # SAME points (fair when sampling; identical to the full sums when not).
-    s_momentum = s_null = s_oracle = 0.0
+    s_momentum = s_null = s_oracle = s_random = 0.0
 
     try:
         for p in points:
@@ -254,7 +261,8 @@ def run_stage1(
 
             # random_among_eligible.
             rnd_sel = random_select(forecasts, rng)
-            rnd.outcomes.append(_settle_selection(adapter, p, forecasts, rnd_sel))
+            rnd_out = _settle_selection(adapter, p, forecasts, rnd_sel)
+            rnd.outcomes.append(rnd_out)
             rnd.selections.append(rnd_sel)
 
             # ceiling & oracle (band context) — computed before the LLM block so the
@@ -283,6 +291,7 @@ def run_stage1(
                 s_momentum += mom_out.pnl
                 s_null += null_out.pnl
                 s_oracle += oracle_pnl
+                s_random += rnd_out.pnl
                 if llm_sel.selection_mode == "llm":
                     llm_path_points += 1
                     llm_symbols.add(p.symbol)
@@ -358,6 +367,9 @@ def run_stage1(
         sanity_passed=True,
         sampled=sampled,
         llm_points_evaluated=len(llm.outcomes),
+        sampled_floor_momentum=v_floor,
+        sampled_null=v_null,
+        sampled_random=(s_random if sampled else rnd.total_pnl),
     )
 
 

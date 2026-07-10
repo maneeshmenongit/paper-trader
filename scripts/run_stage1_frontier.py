@@ -83,9 +83,7 @@ def _build_selector(provider: str, model: str, max_calls: int | None) -> LLMSele
     cache = {}
     if _CACHE_PATH.exists():
         cache = {k: tuple(v) for k, v in json.loads(_CACHE_PATH.read_text()).items()}
-    sel = LLMSelector(cast(SelectorRouter, router), max_calls=max_calls, cache=cache)
-    sel._router_ref = router  # type: ignore[attr-defined]  # for attestation readout
-    return sel
+    return LLMSelector(cast(SelectorRouter, router), max_calls=max_calls, cache=cache)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,18 +141,20 @@ def main(argv: list[str] | None = None) -> int:
 
     _persist_cache(selector)
 
-    router = selector._router_ref  # type: ignore[attr-defined]
+    # Attestation from the SELECTOR's served_models — populated from live calls AND
+    # cache hits — so a cached replay attests the same as the live pass (DT-17).
+    served = sorted(selector.served_models)
     print(f"\nVERDICT: {rep.verdict}")
     print(f"  floor(momentum) ${rep.floor_momentum_pnl:,.2f} | null ${rep.null_pnl:,.2f} "
           f"| STRONG-llm ${rep.llm_pnl:,.2f} | oracle ${rep.oracle_pnl:,.2f}")
     print(f"  edge {rep.llm_edge_ratio * 100:.3f}% | calls {rep.llm_calls} "
-          f"| served by: {sorted(router.served_models)}")
+          f"| served by: {served}")
 
     if args.report:
         from paper_trader.backtest.stage1_frontier_report import write_frontier_report
         write_frontier_report(
             rep, args.report, floor_crosscheck=crosscheck,
-            prompt_hash=_prompt_hash(), served_models=sorted(router.served_models),
+            prompt_hash=_prompt_hash(), served_models=served,
             model_label=f"{args.provider}/{args.model}",
         )
         print(f"\nconfirmation report written: {args.report}")

@@ -42,6 +42,9 @@ class AttestingRouter:
         self.budget = budget
         self.served_models: set[str] = set()
         self.calls_served = 0
+        # The model id of the most recent successful call — read by LLMSelector so a
+        # cache entry can record which model produced it (attestation on replay).
+        self.served_model: str | None = None
 
     def _model_id(self) -> str:
         # Provider-qualified so "groq/llama-3.3-70b" != "ollama/llama-3.3-70b".
@@ -67,6 +70,7 @@ class AttestingRouter:
         text, tokens = self.client.complete(system, user, max_tokens, json_mode)
         self.budget.consume(tokens)
         self.served_models.add(served)
+        self.served_model = served
         self.calls_served += 1
         if served != self.expected_model:
             raise ModelDowngradeError(
